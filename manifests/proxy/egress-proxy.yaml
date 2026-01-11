@@ -1,0 +1,60 @@
+# Egress proxy - mitmproxy with secret scanning
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: claude-sandbox  # CHANGE to match your namespace
+  labels:
+    app: egress-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: egress-proxy
+  template:
+    metadata:
+      labels:
+        app: egress-proxy
+    spec:
+      containers:
+        - name: mitmproxy
+          image: localhost:32000/egress-proxy:latest  # CHANGE to your registry
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: LLM_GUARD_URL
+              value: "http://llm-guard:8000"
+            - name: LLM_GUARD_TOKEN
+              value: "internal-only"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: proxy-logs
+              mountPath: /var/log/proxy
+      volumes:
+        - name: proxy-logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  selector:
+    app: egress-proxy
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

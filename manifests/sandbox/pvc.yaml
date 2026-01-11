@@ -1,0 +1,26 @@
+# Persistent storage for workspace and Claude state
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: yolo-cage-workspace
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard  # CHANGE to match your cluster
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: yolo-cage-claude-data
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard  # CHANGE to match your cluster
+  resources:
+    requests:
+      storage: 1Gi

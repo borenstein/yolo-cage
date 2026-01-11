@@ -1,0 +1,95 @@
+# Network policies for egress control
+# yolo-cage can only reach: DNS, egress-proxy, and SSH (for git)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: yolo-cage-egress
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  podSelector:
+    matchLabels:
+      app: yolo-cage
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Egress proxy (all HTTP/HTTPS goes through here)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: egress-proxy
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # SSH for git (bypasses proxy - see architecture.md for discussion)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 22
+---
+# Egress proxy can reach: DNS, LLM-Guard, and internet
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy-policy
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  podSelector:
+    matchLabels:
+      app: egress-proxy
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # LLM-Guard for secret scanning
+    - to:
+        - podSelector:
+            matchLabels:
+              app: llm-guard
+      ports:
+        - protocol: TCP
+          port: 8000
+
+    # Internet (HTTP, HTTPS, SSH)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 22
+---
+# LLM-Guard has no egress (it's a pure scanner)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-guard-policy
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-guard
+  policyTypes:
+    - Egress
+  egress:
+    # DNS only (required for healthchecks)
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53

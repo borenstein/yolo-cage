@@ -1,0 +1,72 @@
+#!/bin/bash
+# Initialize workspace on first boot
+# Sets up SSH, git config, Claude credentials, and clones repo
+
+set -e
+
+SSH_DIR="$HOME/.ssh"
+CLAUDE_DIR="$HOME/.claude"
+WORKSPACE="/workspace"
+REPO_NAME="project"  # Generic name for the bare repo
+
+# Ensure directories exist
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+mkdir -p "$CLAUDE_DIR" 2>/dev/null || true
+
+# Set up Claude OAuth credentials from mounted secret
+if [[ -f "$CLAUDE_DIR/.credentials.json" ]]; then
+    echo "Claude OAuth credentials already exist, skipping"
+elif [[ -f /secrets/claude-oauth-credentials ]]; then
+    cp /secrets/claude-oauth-credentials "$CLAUDE_DIR/.credentials.json"
+    chmod 600 "$CLAUDE_DIR/.credentials.json"
+    echo "Claude OAuth credentials configured from secret"
+else
+    echo "No Claude credentials found - run 'claude' to authenticate via browser"
+fi
+
+# Set up SSH key from mounted secret
+if [[ -f /secrets/ssh-private-key ]]; then
+    cp /secrets/ssh-private-key "$SSH_DIR/id_ed25519"
+    chmod 600 "$SSH_DIR/id_ed25519"
+    echo "SSH key configured"
+else
+    echo "Warning: No SSH key found at /secrets/ssh-private-key"
+fi
+
+# Set up known hosts from configmap
+if [[ -f /config/ssh-known-hosts ]]; then
+    cp /config/ssh-known-hosts "$SSH_DIR/known_hosts"
+    chmod 644 "$SSH_DIR/known_hosts"
+    echo "Known hosts configured"
+fi
+
+# Configure git
+if [[ -f /config/git-name ]] && [[ -f /config/git-email ]]; then
+    git config --global user.name "$(cat /config/git-name)"
+    git config --global user.email "$(cat /config/git-email)"
+    echo "Git configured: $(git config --global user.name) <$(git config --global user.email)>"
+fi
+
+# Clone repo as bare if not exists
+BARE_REPO="$WORKSPACE/${REPO_NAME}.git"
+if [[ ! -d "$BARE_REPO" ]]; then
+    REPO_URL=$(cat /config/repo-url 2>/dev/null)
+    if [[ -z "$REPO_URL" ]]; then
+        echo "Error: No repo URL found at /config/repo-url"
+        echo "Please set repo-url in your yolo-cage-config ConfigMap"
+        exit 1
+    fi
+    echo "Cloning $REPO_URL as bare repo..."
+    git clone --bare "$REPO_URL" "$BARE_REPO"
+
+    # Fetch all remote refs
+    cd "$BARE_REPO"
+    git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+    echo "Repository cloned to $BARE_REPO"
+else
+    echo "Repository already exists at $BARE_REPO"
+fi
+
+echo ""
+echo "Workspace initialized. Use 'thread new <branch-name>' to start working."

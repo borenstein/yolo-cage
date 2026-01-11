@@ -1,0 +1,104 @@
+# LLM-Guard - Secret scanning service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-guard-config
+  namespace: claude-sandbox  # CHANGE to match your namespace
+data:
+  scanners.yml: |
+    input_scanners:
+      - type: Secrets
+        params:
+          redact_mode: "all"
+      - type: Regex
+        params:
+          patterns:
+            # SSH private keys
+            - "-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"
+            # AWS access keys
+            - "AKIA[0-9A-Z]{16}"
+            # Anthropic API keys
+            - "sk-ant-[a-zA-Z0-9-_]+"
+            # GitHub tokens
+            - "ghp_[a-zA-Z0-9]{36}"
+            - "github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}"
+            # Add your own patterns here
+          match_type: "search"
+          redact: true
+
+    # No output scanners needed - we scan outgoing requests (inputs to proxy)
+    output_scanners: []
+
+    settings:
+      lazy_load: false
+      low_cpu_mem_usage: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-guard
+  namespace: claude-sandbox  # CHANGE to match your namespace
+  labels:
+    app: llm-guard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-guard
+  template:
+    metadata:
+      labels:
+        app: llm-guard
+    spec:
+      containers:
+        - name: llm-guard
+          image: laiyer/llm-guard-api:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: AUTH_TOKEN
+              value: "internal-only"  # Only accessible within cluster
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /home/user/app/config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: llm-guard-config
+            items:
+              - key: scanners.yml
+                path: scanners.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-guard
+  namespace: claude-sandbox  # CHANGE to match your namespace
+spec:
+  selector:
+    app: llm-guard
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

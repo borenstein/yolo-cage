@@ -1,0 +1,127 @@
+#!/bin/bash
+# Manage development threads (worktrees + tmux sessions)
+# Usage:
+#   thread new <name> [base-ref]  - Create worktree and start Claude
+#   thread ls                     - List active threads
+#   thread rm <name>              - Remove worktree and session
+
+set -e
+
+WORKSPACE="/workspace"
+REPO_NAME="project"
+BARE_REPO="$WORKSPACE/${REPO_NAME}.git"
+
+cmd_new() {
+    local BRANCH="$1"
+    local BASE_REF="${2:-origin/main}"
+    local WORKTREE_PATH="$WORKSPACE/$BRANCH"
+
+    if [[ -z "$BRANCH" ]]; then
+        echo "Usage: thread new <branch-name> [base-ref]"
+        echo ""
+        echo "Examples:"
+        echo "  thread new feature-auth           # Branch from origin/main"
+        echo "  thread new bugfix-123 origin/dev  # Branch from origin/dev"
+        exit 1
+    fi
+
+    if [[ ! -d "$BARE_REPO" ]]; then
+        echo "Error: Repository not found at $BARE_REPO"
+        echo "Run 'init-workspace' first."
+        exit 1
+    fi
+
+    echo "Fetching latest from origin..."
+    git -C "$BARE_REPO" fetch origin
+
+    if [[ -d "$WORKTREE_PATH" ]]; then
+        echo "Worktree already exists at $WORKTREE_PATH"
+        if tmux has-session -t "$BRANCH" 2>/dev/null; then
+            echo "Attaching to existing tmux session..."
+            tmux attach-session -t "$BRANCH"
+        else
+            echo "Starting new tmux session..."
+            cd "$WORKTREE_PATH"
+            tmux new-session -s "$BRANCH" -c "$WORKTREE_PATH"
+        fi
+        exit 0
+    fi
+
+    echo "Creating worktree at $WORKTREE_PATH from $BASE_REF..."
+    git -C "$BARE_REPO" worktree add "$WORKTREE_PATH" -b "$BRANCH" "$BASE_REF"
+
+    cd "$WORKTREE_PATH"
+
+    # Run project setup if Makefile exists
+    if [[ -f Makefile ]] && grep -q "^setup:" Makefile; then
+        echo "Running 'make setup'..."
+        make setup
+    fi
+
+    echo ""
+    echo "Starting tmux session '$BRANCH' with Claude Code (YOLO mode)..."
+    echo "Detach with Ctrl-b d, reattach with: tmux attach -t $BRANCH"
+    echo ""
+
+    tmux new-session -s "$BRANCH" -c "$WORKTREE_PATH" "claude --dangerously-skip-permissions"
+}
+
+cmd_ls() {
+    echo "=== Git Worktrees ==="
+    if [[ -d "$BARE_REPO" ]]; then
+        git -C "$BARE_REPO" worktree list
+    else
+        echo "(repository not initialized - run init-workspace)"
+    fi
+
+    echo ""
+    echo "=== Tmux Sessions ==="
+    tmux list-sessions 2>/dev/null || echo "(no active sessions)"
+}
+
+cmd_rm() {
+    local BRANCH="$1"
+    local WORKTREE_PATH="$WORKSPACE/$BRANCH"
+
+    if [[ -z "$BRANCH" ]]; then
+        echo "Usage: thread rm <branch-name>"
+        exit 1
+    fi
+
+    if tmux has-session -t "$BRANCH" 2>/dev/null; then
+        echo "Killing tmux session '$BRANCH'..."
+        tmux kill-session -t "$BRANCH"
+    fi
+
+    if [[ -d "$WORKTREE_PATH" ]]; then
+        echo "Removing worktree at $WORKTREE_PATH..."
+        git -C "$BARE_REPO" worktree remove "$WORKTREE_PATH" --force
+        echo "Done."
+    else
+        echo "No worktree found at $WORKTREE_PATH"
+    fi
+}
+
+# Main dispatch
+case "${1:-}" in
+    new)
+        shift
+        cmd_new "$@"
+        ;;
+    ls|list)
+        cmd_ls
+        ;;
+    rm|remove)
+        shift
+        cmd_rm "$@"
+        ;;
+    *)
+        echo "Usage: thread <command> [args]"
+        echo ""
+        echo "Commands:"
+        echo "  new <name> [base-ref]  - Create worktree and start Claude in YOLO mode"
+        echo "  ls                     - List active worktrees and tmux sessions"
+        echo "  rm <name>              - Remove worktree and kill session"
+        exit 1
+        ;;
+esac

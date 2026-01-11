@@ -1,0 +1,20 @@
+# Secrets - NEVER commit
+deploy-key
+deploy-key.pub
+*.pem
+claude-credentials.json
+manifests/config.yaml
+
+# macOS
+.DS_Store
+._*
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.log
