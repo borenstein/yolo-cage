@@ -10,6 +10,8 @@ set -e
 WORKSPACE="/workspace"
 REPO_NAME="project"
 BARE_REPO="$WORKSPACE/${REPO_NAME}.git"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+FIRST_TURN_FILE="$SCRIPT_DIR/thread.first-turn.txt"
 
 cmd_new() {
     local BRANCH="$1"
@@ -63,7 +65,12 @@ cmd_new() {
     echo "Detach with Ctrl-b d, reattach with: tmux attach -t $BRANCH"
     echo ""
 
-    tmux new-session -s "$BRANCH" -c "$WORKTREE_PATH" "claude --dangerously-skip-permissions"
+    if [[ -f "$FIRST_TURN_FILE" ]]; then
+        FIRST_TURN=$(cat "$FIRST_TURN_FILE")
+        tmux new-session -s "$BRANCH" -c "$WORKTREE_PATH" "claude --dangerously-skip-permissions \"$FIRST_TURN\""
+    else
+        tmux new-session -s "$BRANCH" -c "$WORKTREE_PATH" "claude --dangerously-skip-permissions"
+    fi
 }
 
 cmd_ls() {

@@ -87,6 +87,28 @@ kubectl create secret generic yolo-cage-credentials \
 rm deploy-key deploy-key.pub claude-credentials.json
 ```
 
+## Step 4b: Create GitHub Token (Optional)
+
+If you want the agent to interact with GitHub Issues via the `gh` CLI, create a fine-grained personal access token:
+
+1. Go to [GitHub Settings > Developer settings > Fine-grained tokens](https://github.com/settings/tokens?type=beta)
+2. Click **Generate new token**
+3. Configure:
+   - **Token name**: `yolo-cage` (or similar)
+   - **Repository access**: Select your project repo only
+   - **Permissions**: Issues: Read and write (leave others as "No access")
+4. Copy the token
+
+Create the secret:
+
+```bash
+kubectl create secret generic yolo-cage-github-token \
+  --namespace=<your-namespace> \
+  --from-literal=token=github_pat_xxxxx
+```
+
+See [docs/customization.md](customization.md#restricting-github-cli-access) for details on what this prevents.
+
 ## Step 5: Build Container Images
 
 ### yolo-cage (Claude Code environment):

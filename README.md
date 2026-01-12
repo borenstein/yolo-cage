@@ -97,6 +97,14 @@ thread rm feature-auth         # Clean up when done
 
 Multiple features can run in parallel. Detach with `Ctrl-b d`, reattach with `tmux attach -t feature-name`.
 
+### First-Turn Prompts
+
+Optionally, create `scripts/thread.first-turn.txt` to automatically orient new agents. This prompt runs when a thread starts, useful for ensuring agents review docs, run setup, and report the current commit SHA before you begin. See [docs/customization.md](docs/customization.md#first-turn-prompts).
+
+### Restricting GitHub CLI Access
+
+You may want agents to read issues for context without being able to merge PRs or modify repo settings. Use a fine-grained personal access token scoped to issues only. See [docs/customization.md](docs/customization.md#restricting-github-cli-access).
+
 ## Known Limitations
 
 - **SSH bypasses the proxy**: Git over SSH goes direct. Secrets could theoretically be exfiltrated via commit messages or branch names. Mitigation: use git-over-HTTPS, or accept this risk.

@@ -48,6 +48,12 @@ if [[ -f /config/git-name ]] && [[ -f /config/git-email ]]; then
     echo "Git configured: $(git config --global user.name) <$(git config --global user.email)>"
 fi
 
+# Configure GitHub CLI with fine-grained PAT (optional, for issue access)
+if [[ -f /secrets/github-token ]]; then
+    gh auth login --with-token < /secrets/github-token
+    echo "GitHub CLI configured"
+fi
+
 # Clone repo as bare if not exists
 BARE_REPO="$WORKSPACE/${REPO_NAME}.git"
 if [[ ! -d "$BARE_REPO" ]]; then

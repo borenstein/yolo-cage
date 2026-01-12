@@ -86,6 +86,10 @@ spec:
             - name: secrets
               mountPath: /secrets
               readOnly: true
+            - name: github-token
+              mountPath: /secrets/github-token
+              subPath: github-token
+              readOnly: true
             - name: config
               mountPath: /config
               readOnly: true
@@ -117,6 +121,15 @@ spec:
                 mode: 0600
               - key: claude-oauth-credentials
                 path: claude-oauth-credentials
+                mode: 0600
+
+        - name: github-token
+          secret:
+            secretName: yolo-cage-github-token
+            optional: true
+            items:
+              - key: token
+                path: github-token
                 mode: 0600
 
         - name: config

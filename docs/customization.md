@@ -191,6 +191,81 @@ echo "https://your-username:ghp_token@github.com" > ~/.git-credentials
 
 Now all git operations go through the proxy and get scanned.
 
+## First-Turn Prompts
+
+New threads can automatically run a "first turn" prompt that orients the agent before you start working. This is useful for:
+
+- Ensuring agents review documentation (CLAUDE.md) before making changes
+- Running setup scripts so the agent understands the bootstrapped environment
+- Getting a summary of the project state and latest commit
+
+### Setup
+
+Create `scripts/thread.first-turn.txt` with your prompt:
+
+```bash
+cp scripts/thread.first-turn.txt.example scripts/thread.first-turn.txt
+# Edit to customize
+```
+
+Example prompt:
+```
+Please review this project's documentation and codebase, especially CLAUDE.md.
+Then run the setup script(s). Return with a brief summary of what this repo is,
+how it works, and indicate the SHA of the latest commit.
+```
+
+When `thread new <name>` creates a new worktree, it will pass this prompt to Claude automatically.
+
+### Skipping the First Turn
+
+If you don't want a first-turn prompt, simply don't create the file. The script checks for its existence and runs without a prompt if absent.
+
+## Restricting GitHub CLI Access
+
+In YOLO mode, the agent has full access to any tools installed in the container, including the GitHub CLI (`gh`). You may want agents to access issues for context without being able to merge PRs, delete branches, or modify repository settings.
+
+### Solution: Fine-Grained Personal Access Tokens
+
+GitHub's [fine-grained personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) (free for all users) can be scoped to specific repositories and permissions.
+
+### Creating an Issues-Only Token
+
+1. Go to [GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens](https://github.com/settings/tokens?type=beta)
+
+2. Click **Generate new token**
+
+3. Configure the token:
+   - **Token name**: `yolo-cage-issues` (or similar)
+   - **Expiration**: Choose based on your security needs
+   - **Repository access**: Select **Only select repositories** and choose your project repo
+   - **Permissions**: Under "Repository permissions", set:
+     - **Issues**: Read and write
+     - Leave all other permissions as "No access"
+
+4. Click **Generate token** and copy it
+
+### Configuring the Container
+
+The deployment is pre-configured to mount an optional `yolo-cage-github-token` secret. Just create the secret:
+
+```bash
+kubectl create secret generic yolo-cage-github-token \
+  --namespace=<your-namespace> \
+  --from-literal=token=github_pat_xxxxx
+```
+
+The `init-workspace` script automatically configures `gh` if the token is present.
+
+### What This Prevents
+
+With an issues-only token, even if the agent runs commands like:
+- `gh pr merge` - Fails (no PR permissions)
+- `gh repo delete` - Fails (no admin permissions)
+- `gh release create` - Fails (no contents permissions)
+
+The security boundary is enforced at GitHub's API level, not by restricting which commands the agent can run.
+
 ## Disabling Components
 
 ### Run without secret scanning (not recommended)
