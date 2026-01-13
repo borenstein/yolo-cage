@@ -118,9 +118,8 @@ kubectl apply -n yolo-cage -f manifests/
 # 5. Create a sandbox for your feature branch
 ./scripts/yolo-cage create feature-auth
 
-# 6. Attach and start Claude
+# 6. Launch Claude
 ./scripts/yolo-cage attach feature-auth
-claude --dangerously-skip-permissions
 ```
 
 ## CLI Commands
@@ -128,7 +127,7 @@ claude --dangerously-skip-permissions
 ```bash
 yolo-cage create <branch> [-n namespace]   # Create pod for branch
 yolo-cage list [-n namespace]              # List active pods
-yolo-cage attach <branch> [-n namespace]   # Exec into pod
+yolo-cage attach <branch> [-n namespace]   # Launch Claude in pod
 yolo-cage delete <branch> [-n namespace]   # Remove pod
 yolo-cage logs <branch> [-n namespace]     # Tail pod logs
 ```

@@ -141,11 +141,8 @@ cmd_create() {
     echo ""
     echo "Pod ${pod} is ready."
     echo ""
-    echo "Connect with:"
+    echo "Launch Claude with:"
     echo "  yolo-cage attach ${branch}"
-    echo ""
-    echo "Then start Claude Code:"
-    echo "  claude --dangerously-skip-permissions"
 }
 
 cmd_list() {
@@ -176,8 +173,9 @@ cmd_attach() {
         exit 1
     fi
 
-    echo "Attaching to ${pod}..."
-    kubectl exec -it -n "${NAMESPACE}" "${pod}" -- /bin/bash -c "cd /workspaces/${branch} && exec bash"
+    echo "Launching Claude in ${pod}..."
+    kubectl exec -it -n "${NAMESPACE}" "${pod}" -- \
+        /bin/bash -c "cd /workspaces/${branch} && exec claude --dangerously-skip-permissions"
 }
 
 cmd_delete() {
