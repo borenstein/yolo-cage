@@ -1,4 +1,4 @@
-# yolo-cage: Kubernetes sandbox for Claude Code in YOLO mode
+# yolo-cage: Safe, autonomous coding agents in Kubernetes
 
 > **Disclaimer**: This reduces risk but does not eliminate it. Do not use with production secrets or credentials where exfiltration would be catastrophic. See the [license](#license) section below.
 
@@ -187,4 +187,4 @@ MIT. See [LICENSE](LICENSE) for full text.
 
 ## Credits
 
-Built by David Bruce Borenstein and Claude. The agent designed and implemented its own containment infrastructure, which is either very aligned or very meta, depending on your perspective.
+Designed by David Bruce Borenstein, planned and implemented by Claude. The human came up with the key ideas; the agent figured out how to build them.
