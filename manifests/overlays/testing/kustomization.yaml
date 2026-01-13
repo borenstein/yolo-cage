@@ -1,0 +1,44 @@
+# Testing overlay for yolo-cage
+# Uses borenstein/yolo-cage-testing repo
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: yolo-cage-testing
+
+patches:
+  - target:
+      kind: Namespace
+      name: yolo-cage
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: yolo-cage-testing
+
+configMapGenerator:
+  - name: yolo-cage-config
+    behavior: replace
+    literals:
+      - repo-url=https://github.com/borenstein/yolo-cage-testing.git
+      - git-name=David Borenstein
+      - git-email=open.source@dbpublic.com
+
+  - name: dispatcher-config
+    behavior: replace
+    literals:
+      - WORKSPACE_ROOT=/workspaces
+      - GIT_USER_NAME=David Borenstein
+      - GIT_USER_EMAIL=open.source@dbpublic.com
+      - YOLO_CAGE_VERSION=0.2.0
+      - PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail --no-update"]
+      - COMMIT_FOOTER=Built autonomously using yolo-cage v0.2.0
+
+images:
+  - name: localhost:32000/yolo-cage
+    newTag: latest
+  - name: localhost:32000/git-dispatcher
+    newTag: latest
+  - name: localhost:32000/egress-proxy
+    newTag: latest

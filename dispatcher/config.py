@@ -11,7 +11,8 @@ GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
 YOLO_CAGE_VERSION = os.environ.get("YOLO_CAGE_VERSION", "0.2.0")
 
 DEFAULT_PRE_PUSH_HOOKS = [
-    "trufflehog git file://. --since-commit HEAD~10 --fail --no-update"
+    # Use --max-depth instead of --since-commit to avoid issues with shallow repos
+    "trufflehog git file://. --max-depth=10 --fail --no-update"
 ]
 PRE_PUSH_HOOKS = json.loads(
     os.environ.get("PRE_PUSH_HOOKS", json.dumps(DEFAULT_PRE_PUSH_HOOKS))

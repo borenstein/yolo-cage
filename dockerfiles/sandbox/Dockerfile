@@ -22,6 +22,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv (fast Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
@@ -44,15 +52,22 @@ WORKDIR /workspace
 
 # Copy scripts
 COPY scripts/git-shim /usr/local/bin/git-shim
+COPY scripts/gh-shim /usr/local/bin/gh-shim
 COPY scripts/yolo-cage-init /usr/local/bin/yolo-cage-init
+COPY scripts/yolo-cage-escape-test /usr/local/bin/yolo-cage-escape-test
 USER root
-RUN chmod +x /usr/local/bin/git-shim /usr/local/bin/yolo-cage-init
+RUN chmod +x /usr/local/bin/git-shim /usr/local/bin/gh-shim /usr/local/bin/yolo-cage-init /usr/local/bin/yolo-cage-escape-test
 
-# Create a wrapper that uses the git shim
+# Create wrappers that use the shims
 # Real git is at /usr/bin/git, shim intercepts at /usr/local/bin/git
 RUN echo '#!/bin/bash' > /usr/local/bin/git && \
     echo 'exec /usr/local/bin/git-shim "$@"' >> /usr/local/bin/git && \
     chmod +x /usr/local/bin/git
+
+# Real gh is at /usr/bin/gh, shim intercepts at /usr/local/bin/gh
+RUN echo '#!/bin/bash' > /usr/local/bin/gh && \
+    echo 'exec /usr/local/bin/gh-shim "$@"' >> /usr/local/bin/gh && \
+    chmod +x /usr/local/bin/gh
 
 USER dev
 

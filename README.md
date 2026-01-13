@@ -10,6 +10,22 @@ A Kubernetes sandbox for running [Claude Code](https://docs.anthropic.com/en/doc
 2. **Cannot modify code outside its branch** - git dispatcher enforces
 3. **Cannot merge its own PRs** - agent proposes, human disposes
 
+---
+
+## Get Started
+
+### Option A: Deploy and Get to Work
+
+Ready to go? → **[Setup Guide](docs/setup.md)**
+
+### Option B: Torture-Test It First
+
+Need to convince yourself (or your security team) it actually works?
+
+→ **[Security Audit Guide](docs/security-audit.md)** - Fork this repo, deploy yolo-cage against itself, run escape tests. Includes a prompt that asks an AI agent to try to break out of the cage defined by the repo it's reading.
+
+---
+
 ## The Problem
 
 You want multiple AI agents working on your codebase in parallel, each on different feature branches, without babysitting permission prompts. But YOLO mode feels irresponsible because agents have what [Simon Willison calls the "lethal trifecta"](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/):
@@ -87,59 +103,14 @@ Dispatcher enforces branch rules, runs TruffleHog, executes real git
 Output returned to agent
 ```
 
-## Quick Start
-
-```bash
-# 1. Clone this repo
-git clone https://github.com/borenstein/yolo-cage.git
-cd yolo-cage
-
-# 2. Create namespace and secrets
-kubectl create namespace yolo-cage
-kubectl create secret generic yolo-cage-credentials \
-  --namespace=yolo-cage \
-  --from-file=claude-oauth-credentials=claude-credentials.json
-
-kubectl create secret generic github-pat \
-  --namespace=yolo-cage \
-  --from-literal=GITHUB_PAT=ghp_your_token_here
-
-# 3. Build and push images (MicroK8s example)
-docker build -t localhost:32000/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
-docker push localhost:32000/yolo-cage:latest
-
-docker build -t localhost:32000/git-dispatcher:latest -f dockerfiles/dispatcher/Dockerfile .
-docker push localhost:32000/git-dispatcher:latest
-
-docker build -t localhost:32000/egress-proxy:latest -f dockerfiles/proxy/Dockerfile .
-docker push localhost:32000/egress-proxy:latest
-
-# 4. Deploy infrastructure
-kubectl apply -n yolo-cage -f manifests/
-
-# 5. Create a sandbox for your feature branch
-./scripts/yolo-cage create feature-auth
-
-# 6. Launch Claude
-./scripts/yolo-cage attach feature-auth
-```
-
-## CLI Commands
-
-```bash
-yolo-cage create <branch> [-n namespace]   # Create pod for branch
-yolo-cage list [-n namespace]              # List active pods
-yolo-cage attach <branch> [-n namespace]   # Launch Claude in pod
-yolo-cage delete <branch> [-n namespace]   # Remove pod
-yolo-cage logs <branch> [-n namespace]     # Tail pod logs
-```
-
 ## Documentation
 
-- [Architecture](docs/architecture.md) - Why this approach, threat model, limitations
+- [Architecture](docs/architecture.md) - Design rationale, threat model, limitations
 - [Setup](docs/setup.md) - Prerequisites, step-by-step deployment
-- [Configuration](docs/configuration.md) - All configuration options (egress policy, bypasses, hooks, etc.)
-- [Customization](docs/customization.md) - Advanced customizations (Dockerfile changes, different k8s distros)
+- [Configuration](docs/configuration.md) - Egress policy, bypasses, hooks
+- [Security Audit](docs/security-audit.md) - Escape testing for enterprise audits
+
+---
 
 ## What Gets Blocked
 

@@ -2,8 +2,6 @@
 
 > **Disclaimer**: This was built to solve a specific problem (running Claude Code in YOLO mode without babysitting). It reduces risk but does not eliminate it. See [LICENSE](../LICENSE) for warranty disclaimers. Do not use with production secrets or credentials where exfiltration would be catastrophic.
 
-For detailed reasoning behind these design decisions, see the companion blog post: [Building a Sandbox for AI Agents in YOLO Mode](https://davidbruceborenstein.com/blog/yolo-cage).
-
 ## The Goal
 
 Run N [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents in parallel, each working on a different feature branch, without:

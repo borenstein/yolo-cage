@@ -75,6 +75,19 @@ def get_push_refspec_target(args: list[str]) -> Optional[str]:
     return None
 
 
+def _has_url_target(args: list[str]) -> bool:
+    """Check if push command includes a URL as target (not just remote name)."""
+    for arg in args:
+        if arg.startswith("-"):
+            continue
+        if arg == "push":
+            continue
+        # URLs contain :// or start with git@
+        if "://" in arg or arg.startswith("git@"):
+            return True
+    return False
+
+
 def check_push_allowed(
     args: list[str],
     cwd: str,
@@ -93,7 +106,15 @@ def check_push_allowed(
             f"'{assigned_branch}'.\nCurrent branch is '{current}'.\n"
         )
 
-    # Cannot push to a different remote branch
+    # Block push to arbitrary URLs (cross-repo escape prevention)
+    # Only allow pushing to configured remotes (origin)
+    if _has_url_target(args):
+        return (
+            "yolo-cage: pushing to URLs is not permitted.\n"
+            "You can only push to configured remotes (origin).\n"
+        )
+
+    # Cannot push to a different remote branch via refspec
     refspec_target = get_push_refspec_target(args)
     if refspec_target and refspec_target != assigned_branch:
         return f"yolo-cage: you can only push to branch '{assigned_branch}'\n"

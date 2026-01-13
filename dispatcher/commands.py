@@ -16,9 +16,9 @@ class CommandCategory(Enum):
 
 
 ALLOWLIST_LOCAL = frozenset({
-    "add", "rm", "status", "log", "diff", "show",
+    "add", "rm", "mv", "status", "log", "diff", "show", "commit",
     "stash", "reset", "restore", "rev-parse", "ls-files",
-    "blame", "shortlog", "describe", "tag",
+    "blame", "shortlog", "describe", "tag", "clean",
 })
 
 ALLOWLIST_BRANCH = frozenset({"branch", "checkout", "switch"})

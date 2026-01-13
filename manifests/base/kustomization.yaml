@@ -20,6 +20,7 @@ resources:
   # Sandbox infrastructure
   - sandbox/networkpolicy.yaml
   - sandbox/pvc.yaml
+  - sandbox/configmap.yaml
   - sandbox/agent-prompt.yaml
 
 # The pod-template.yaml is NOT a resource - it's used by the CLI
