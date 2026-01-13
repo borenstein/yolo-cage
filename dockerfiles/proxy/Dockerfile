@@ -12,8 +12,8 @@ RUN pip install --no-cache-dir requests
 RUN mkdir -p /var/log/proxy && chown mitmproxy:mitmproxy /var/log/proxy
 
 # Copy proxy modules
-COPY dockerfiles/proxy/policy.py /home/mitmproxy/policy.py
-COPY dockerfiles/proxy/addon.py /home/mitmproxy/addon.py
+COPY proxy/policy.py /home/mitmproxy/policy.py
+COPY proxy/addon.py /home/mitmproxy/addon.py
 
 USER mitmproxy
 
