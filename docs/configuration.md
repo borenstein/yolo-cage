@@ -52,12 +52,17 @@ Controls what network traffic agents can make. All settings are in the `egress-p
 
 ### Proxy Bypass
 
-Hosts that bypass the scanning proxy entirely. Use for:
-- **Latency-sensitive APIs** (e.g., `api.anthropic.com`)
-- **MCP servers** you trust
-- **Internal services** that don't need scanning
+Hosts that bypass the scanning proxy entirely.
 
-Traffic to bypassed hosts is **not scanned for secrets**.
+**Important:** Any service requiring authentication must be on the bypass list. The proxy scans all traffic for secrets - including legitimate API keys you *need* to send. If a service requires a token in a header or body, add it to PROXY_BYPASS or requests will be blocked.
+
+Use for:
+- **Authenticated APIs** (e.g., `api.anthropic.com`) - required, or your API key will be blocked
+- **MCP servers** that require authentication
+- **Internal services** with service tokens
+- **Latency-sensitive services** where proxy overhead is unacceptable
+
+Traffic to bypassed hosts is **not scanned for secrets** - this is why you should only bypass services you trust.
 
 ```yaml
 configMapGenerator:
@@ -127,7 +132,7 @@ configMapGenerator:
     behavior: replace
     literals:
       # JSON array of shell commands
-      - PRE_PUSH_HOOKS=["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]
+      - PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail --no-update"]
 ```
 
 Default: TruffleHog secret scanning
@@ -136,7 +141,7 @@ Default: TruffleHog secret scanning
 
 Run tests before push:
 ```yaml
-- PRE_PUSH_HOOKS=["trufflehog git file://. --since-commit HEAD~10 --fail", "pytest tests/quick/"]
+- PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail", "pytest tests/quick/"]
 ```
 
 Lint check:
@@ -321,7 +326,7 @@ configMapGenerator:
       - GIT_USER_EMAIL=david@example.com
       - WORKSPACE_ROOT=/workspaces
       - YOLO_CAGE_VERSION=0.2.0
-      - PRE_PUSH_HOOKS=["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]
+      - PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail --no-update"]
       - COMMIT_FOOTER=Built autonomously using yolo-cage v0.2.0
 
   - name: egress-policy
