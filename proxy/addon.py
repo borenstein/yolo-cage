@@ -13,6 +13,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
+from urllib.parse import unquote
 
 import requests
 from mitmproxy import http
@@ -162,6 +163,14 @@ class EgressProxy:
             has_secrets, detected = self._scan_for_secrets(query_text)
             if has_secrets:
                 self._block(flow, b"Blocked: URL query parameters contain potential secrets", "secrets_in_query", detected)
+                return
+
+        # Scan URL path for secrets (decode URL encoding first)
+        decoded_path = unquote(path)
+        if len(decoded_path) > 10:  # Skip trivial paths
+            has_secrets, detected = self._scan_for_secrets(decoded_path)
+            if has_secrets:
+                self._block(flow, b"Blocked: URL path contains potential secrets", "secrets_in_path", detected)
                 return
 
         # Scan sensitive headers for secrets

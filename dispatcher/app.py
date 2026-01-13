@@ -7,9 +7,11 @@ from fastapi.responses import PlainTextResponse
 
 from . import registry
 from .commands import CommandCategory, classify, get_subcommand
+from .gh import execute as gh_execute
+from .gh_commands import GhCommandCategory, classify_gh
 from .git import execute, execute_with_auth
 from .hooks import run_pre_push_hooks
-from .models import GitRequest
+from .models import GitRequest, GhRequest
 from .policy import check_branch_switch, check_merge_allowed, check_push_allowed
 
 logging.basicConfig(
@@ -122,4 +124,29 @@ async def handle_git(git_req: GitRequest, request: Request):
 
     # Local operations: no restrictions
     result = execute(git_req.args, git_req.cwd)
+    return _git_response(result.stdout + result.stderr, result.exit_code)
+
+
+@app.post("/gh", response_class=PlainTextResponse)
+async def handle_gh(gh_req: GhRequest, request: Request):
+    """Handle a gh CLI command from a sandbox pod."""
+    client_ip = request.client.host
+    assigned_branch = registry.get_branch(client_ip)
+
+    if assigned_branch is None:
+        logger.warning(f"Unregistered pod {client_ip} attempted gh operation")
+        raise HTTPException(403, "yolo-cage: pod not registered. Contact cluster admin.")
+
+    logger.info(f"gh from {client_ip} ({assigned_branch}): {gh_req.args}")
+
+    category, deny_message = classify_gh(gh_req.args)
+
+    if category == GhCommandCategory.BLOCKED:
+        return _denial_response(deny_message + "\n")
+
+    if category == GhCommandCategory.UNKNOWN:
+        return _denial_response("yolo-cage: unrecognized or disallowed gh operation\n")
+
+    # Allowed: execute with authentication
+    result = gh_execute(gh_req.args, gh_req.cwd)
     return _git_response(result.stdout + result.stderr, result.exit_code)

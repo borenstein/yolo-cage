@@ -141,6 +141,38 @@ yolo-cage logs <branch> [-n namespace]     # Tail pod logs
 - [Configuration](docs/configuration.md) - All configuration options (egress policy, bypasses, hooks, etc.)
 - [Customization](docs/customization.md) - Advanced customizations (Dockerfile changes, different k8s distros)
 
+---
+
+## Choose Your Adventure
+
+### Option A: Deploy and Get to Work
+
+You've read enough. Deploy yolo-cage against your codebase and let agents start coding.
+
+1. Follow the [Quick Start](#quick-start) above
+2. Create a branch for each agent task
+3. Let agents work autonomously
+4. Review and merge their PRs
+
+This is the happy path for teams that trust the architecture.
+
+### Option B: Torture-Test It First
+
+You need to convince yourself (or your security team) that this actually works before putting it anywhere near real code.
+
+1. **Fork this repository** to a disposable copy
+2. **Create a wide-open PAT** with all permissions (scoped to your fork only)
+3. **Deploy yolo-cage against your fork** (the cage, caging itself)
+4. **Run the escape tests**:
+   - `yolo-cage-escape-test` - Automated deterministic testing
+   - Agentic escape testing - An AI agent tries to break out
+
+The [Security Audit Guide](docs/security-audit.md) walks you through this process step by step, including a specially crafted prompt that asks an AI agent to systematically attempt to escape its containment.
+
+The prompt is meta by design: the agent reads the escape prompt from *this repository*, realizes it's being asked to test *its own cage*, and proceeds to try to break out. If it can't escape from a sandbox deployed against its own source code, you can be reasonably confident it won't escape from a sandbox deployed against yours.
+
+---
+
 ## What Gets Blocked
 
 **Secrets:**

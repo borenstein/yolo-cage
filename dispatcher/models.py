@@ -20,3 +20,16 @@ class GitResult(BaseModel):
 class PolicyViolation(BaseModel):
     """A branch policy violation."""
     message: str
+
+
+class GhRequest(BaseModel):
+    """Request from gh shim in sandbox pod."""
+    args: list[str]
+    cwd: str
+
+
+class GhResult(BaseModel):
+    """Result of a gh operation."""
+    exit_code: int
+    stdout: str
+    stderr: str

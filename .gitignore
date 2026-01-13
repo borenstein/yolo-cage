@@ -5,6 +5,10 @@ deploy-key.pub
 claude-credentials.json
 manifests/config.yaml
 
+# Blog material - not for public repo
+BLOG_MATERIAL*.md
+BLOG_GUEST_POST.md
+
 # macOS
 .DS_Store
 ._*
