@@ -1,246 +1,243 @@
 # Setup Guide
 
-> **Note**: This setup provides defense-in-depth, not absolute security. Use scoped credentials (deploy keys, limited API tokens) and do not use production secrets. See [LICENSE](../LICENSE) for warranty disclaimers.
+> **Note**: This setup provides defense-in-depth, not absolute security. Use scoped credentials and do not use production secrets. See [LICENSE](../LICENSE) for warranty disclaimers.
 
 ## Prerequisites
 
 - **Kubernetes cluster**: Developed on MicroK8s; may require adaptation for other distributions
-- **Container registry**: Accessible from your cluster (MicroK8s has `localhost:32000`, or use Docker Hub, ECR, etc.)
+- **Container registry**: Accessible from your cluster (MicroK8s uses `localhost:32000`, or use Docker Hub, ECR, etc.)
 - **Docker**: For building images locally
 - **kubectl**: Configured to access your cluster
 - **Claude account**: With OAuth credentials (Pro, Team, or Enterprise)
 
-## Step 1: Clone and Configure
+## Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/borenstein/yolo-cage.git
 cd yolo-cage
-
-# Copy the example config
-cp manifests/config.example.yaml manifests/config.yaml
 ```
 
-Edit `manifests/config.yaml`:
+## Step 2: Build and Push Images
 
-```yaml
-namespace: dev-sandbox          # Your namespace name
-registry: localhost:32000       # Your container registry
-repo_url: git@github.com:you/your-project.git
-git_name: Your Name
-git_email: you@example.com
-```
-
-## Step 2: Create GitHub Deploy Key
-
-Generate an SSH key pair for git access:
+Build the three container images:
 
 ```bash
-ssh-keygen -t ed25519 -C "yolo-cage-deploy" -f ./deploy-key -N ""
+# Set your registry
+REGISTRY=localhost:32000  # MicroK8s default
+
+# Build sandbox image
+docker build -t $REGISTRY/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
+docker push $REGISTRY/yolo-cage:latest
+
+# Build dispatcher image
+docker build -t $REGISTRY/git-dispatcher:latest -f dockerfiles/dispatcher/Dockerfile .
+docker push $REGISTRY/git-dispatcher:latest
+
+# Build proxy image
+docker build -t $REGISTRY/egress-proxy:latest -f dockerfiles/proxy/Dockerfile .
+docker push $REGISTRY/egress-proxy:latest
 ```
 
-Add `deploy-key.pub` to your GitHub repo:
-1. Go to your repo → Settings → Deploy keys
-2. Add deploy key, paste the public key contents
-3. Enable "Allow write access" if you want Claude to push
-
-Keep `deploy-key` (private) for the next step.
-
-## Step 3: Get Claude OAuth Credentials
-
-Claude Code uses OAuth for authentication. You need to extract the credentials from a working installation.
-
-### On macOS:
+## Step 3: Create Namespace and Secrets
 
 ```bash
-# Find the credential in Keychain
-security find-generic-password -s "Claude Code" -w 2>/dev/null
+# Create namespace
+kubectl create namespace yolo-cage
 ```
 
-If that returns JSON, save it:
+### GitHub PAT (Required)
+
+Create a Personal Access Token for git operations:
+
+1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. Create a token with `repo` scope (or use fine-grained tokens with specific permissions)
+
+```bash
+kubectl create secret generic github-pat \
+  --namespace=yolo-cage \
+  --from-literal=GITHUB_PAT=ghp_your_token_here
+```
+
+### Claude OAuth Credentials (Required)
+
+Extract Claude credentials from an existing installation:
+
+**On macOS:**
 ```bash
 security find-generic-password -s "Claude Code" -w > claude-credentials.json
 ```
 
-### On Linux:
+**On Linux:**
+```bash
+cp ~/.claude/.credentials.json claude-credentials.json
+```
 
-Check `~/.claude/.credentials.json` if you've previously authenticated.
-
-### If you don't have credentials yet:
-
-1. Install Claude Code locally: `npm install -g @anthropic-ai/claude-code`
-2. Run `claude` and complete the OAuth flow in your browser
+If you don't have credentials yet:
+1. Install Claude Code: `npm install -g @anthropic-ai/claude-code`
+2. Run `claude` and complete the OAuth flow
 3. Extract credentials as above
 
-## Step 4: Create Kubernetes Secrets
-
+Create the secret:
 ```bash
-# Create namespace first
-kubectl apply -f manifests/namespace.yaml
-
-# Create the secrets
 kubectl create secret generic yolo-cage-credentials \
-  --namespace=<your-namespace> \
-  --from-file=ssh-private-key=./deploy-key \
+  --namespace=yolo-cage \
   --from-file=claude-oauth-credentials=./claude-credentials.json
 
-# Clean up local copies
-rm deploy-key deploy-key.pub claude-credentials.json
+# Clean up
+rm claude-credentials.json
 ```
 
-## Step 4b: Create GitHub Token (Optional)
+## Step 4: Generate Proxy CA Certificate
 
-If you want the agent to interact with GitHub Issues via the `gh` CLI, create a fine-grained personal access token:
-
-1. Go to [GitHub Settings > Developer settings > Fine-grained tokens](https://github.com/settings/tokens?type=beta)
-2. Click **Generate new token**
-3. Configure:
-   - **Token name**: `yolo-cage` (or similar)
-   - **Repository access**: Select your project repo only
-   - **Permissions**: Issues: Read and write (leave others as "No access")
-4. Copy the token
-
-Create the secret:
+The egress proxy needs a CA certificate for HTTPS interception:
 
 ```bash
-kubectl create secret generic yolo-cage-github-token \
-  --namespace=<your-namespace> \
-  --from-literal=token=github_pat_xxxxx
+# Generate CA key and certificate
+openssl genrsa -out ca-key.pem 4096
+openssl req -new -x509 -days 3650 -key ca-key.pem -out ca-cert.pem \
+  -subj "/CN=yolo-cage-proxy-ca"
+
+# Create ConfigMap
+kubectl create configmap proxy-ca \
+  --namespace=yolo-cage \
+  --from-file=mitmproxy-ca.pem=ca-cert.pem
+
+# Clean up
+rm ca-key.pem ca-cert.pem
 ```
 
-See [docs/customization.md](customization.md#restricting-github-cli-access) for details on what this prevents.
+## Step 5: Configure the Dispatcher
 
-## Step 5: Build Container Images
-
-### yolo-cage (Claude Code environment):
+Edit the dispatcher config with your git identity:
 
 ```bash
-docker build -t <registry>/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
-docker push <registry>/yolo-cage:latest
+# Edit the configmap
+$EDITOR manifests/base/dispatcher/configmap.yaml
 ```
 
-For MicroK8s:
-```bash
-docker build -t localhost:32000/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
-docker push localhost:32000/yolo-cage:latest
-```
-
-### Egress Proxy:
-
-```bash
-docker build -t <registry>/egress-proxy:latest -f dockerfiles/proxy/Dockerfile .
-docker push <registry>/egress-proxy:latest
+Update these values:
+```yaml
+data:
+  GIT_USER_NAME: "Your Name"
+  GIT_USER_EMAIL: "you@example.com"
 ```
 
 ## Step 6: Deploy
 
-```bash
-# Apply all manifests
-kubectl apply -f manifests/namespace.yaml
-kubectl apply -f manifests/proxy/
-kubectl apply -f manifests/sandbox/
-
-# Wait for LLM-Guard (downloads models on first start)
-kubectl rollout status -n <namespace> deployment/llm-guard --timeout=300s
-
-# Wait for other components
-kubectl rollout status -n <namespace> deployment/egress-proxy --timeout=60s
-kubectl rollout status -n <namespace> deployment/yolo-cage --timeout=60s
-```
-
-Or use the convenience script:
-```bash
-./deploy.sh
-```
-
-## Step 7: Initialize and Start Working
+### Option A: Direct Apply (Quick Start)
 
 ```bash
-# Get into the pod
-kubectl exec -it -n <namespace> deployment/yolo-cage -- bash
-
-# First time: initialize workspace
-init-workspace
-
-# Start a new feature
-thread new my-feature
+kubectl apply -k manifests/base
 ```
 
-This creates a git worktree at `/workspace/my-feature` and launches Claude Code in YOLO mode inside a tmux session.
+### Option B: Kustomize Overlay (Recommended for Customization)
+
+```bash
+# Copy the example overlay
+cp -r manifests/overlays/example manifests/overlays/my-project
+
+# Edit your overlay
+$EDITOR manifests/overlays/my-project/kustomization.yaml
+
+# Apply
+kubectl apply -k manifests/overlays/my-project
+```
+
+Wait for all pods to be ready:
+
+```bash
+kubectl get pods -n yolo-cage -w
+```
+
+Expected:
+```
+NAME                              READY   STATUS    RESTARTS   AGE
+git-dispatcher-xxx                1/1     Running   0          1m
+egress-proxy-xxx                  1/1     Running   0          1m
+llm-guard-xxx                     1/1     Running   0          1m
+```
+
+## Step 7: Install the CLI
+
+```bash
+sudo cp scripts/yolo-cage /usr/local/bin/
+sudo chmod +x /usr/local/bin/yolo-cage
+```
+
+## Step 8: Create Your First Sandbox
+
+```bash
+# Create a sandbox for a feature branch
+yolo-cage create feature-auth
+
+# Attach to the sandbox
+yolo-cage attach feature-auth
+
+# Inside the sandbox, start Claude Code
+claude --dangerously-skip-permissions
+```
 
 ## Verification
 
-### Test that proxying works:
-
+### Test proxying works:
 ```bash
-kubectl exec -n <namespace> deployment/yolo-cage -- \
-  curl -s https://httpbin.org/get | head -5
+kubectl exec -n yolo-cage deployment/git-dispatcher -- \
+  curl -s https://api.github.com | head -5
 ```
 
-Should return JSON from httpbin.
+Should return GitHub API response.
 
-### Test that secret scanning works:
-
+### Test secret scanning:
 ```bash
-kubectl exec -n <namespace> deployment/yolo-cage -- \
-  curl -s -X POST https://httpbin.org/post \
-  -d "secret=sk-ant-fake-key-12345"
+# From inside a sandbox pod
+curl -X POST https://httpbin.org/post -d "secret=sk-ant-fake-key-12345"
 ```
 
 Should return: `Blocked: request body contains potential secrets`
 
-### Test domain blocking:
-
+### Test git dispatcher:
 ```bash
-kubectl exec -n <namespace> deployment/yolo-cage -- \
-  curl -s https://pastebin.com
+# From inside a sandbox pod
+git status
 ```
 
-Should return: `Blocked: destination is on blocklist`
+Should show repository status (or "yolo-cage:" message if not yet cloned).
 
 ## Troubleshooting
 
-### Pod won't start
+### Pod not starting
 
-Check events:
+Check pod events:
 ```bash
-kubectl describe pod -n <namespace> -l app=yolo-cage
+kubectl describe pod -n yolo-cage <pod-name>
 ```
 
-Things to check:
-- Secret not created (check `kubectl get secrets -n <namespace>`)
-- PVC not bound (check storage class exists)
-- Image pull error (check registry access)
+Common issues:
+- Secret not created: Check `kubectl get secrets -n yolo-cage`
+- PVC not bound: Check storage class exists
+- Image pull error: Check registry access
 
-### HTTPS requests fail with SSL error
+### Git operations failing
 
-The proxy CA certificate might not be configured correctly. Check:
+Check dispatcher logs:
 ```bash
-kubectl exec -n <namespace> deployment/yolo-cage -- \
-  ls -la /etc/ssl/certs/ca-certificates-combined.crt
+kubectl logs -n yolo-cage deployment/git-dispatcher
 ```
 
-Should show a ~200KB file. If missing, check the init container logs:
+Common issues:
+- "pod not registered": Wait for init script to complete, or pod IP changed
+- Authentication errors: Check GitHub PAT secret
+
+### Proxy blocking unexpectedly
+
+Check proxy logs:
 ```bash
-kubectl logs -n <namespace> deployment/yolo-cage -c setup-ca
+kubectl logs -n yolo-cage deployment/egress-proxy
 ```
 
-### LLM-Guard returns 500 errors
+All blocked requests are logged with reasons.
 
-Check LLM-Guard logs:
-```bash
-kubectl logs -n <namespace> -l app=llm-guard
-```
+## Next Steps
 
-Things to check:
-- Config syntax error (check `scanners.yml` format)
-- Out of memory (increase limits)
-
-### Requests pass through without scanning
-
-Check if LLM-Guard is healthy:
-```bash
-kubectl exec -n <namespace> deployment/yolo-cage -- \
-  curl -s http://llm-guard:8000/healthz
-```
-
-Should return `{"status":"healthy"}`.
+- Read [Architecture](architecture.md) to understand the security model
+- See [Customization](customization.md) for advanced configuration

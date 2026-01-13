@@ -1,0 +1,26 @@
+# yolo-cage Kustomize base
+# Reference this as a remote base in your own kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Default namespace - override in your overlay
+namespace: yolo-cage
+
+resources:
+  - namespace.yaml
+  # Dispatcher
+  - dispatcher/deployment.yaml
+  - dispatcher/service.yaml
+  - dispatcher/configmap.yaml
+  # Proxy
+  - proxy/egress-proxy.yaml
+  - proxy/llm-guard.yaml
+  - proxy/proxy-ca.yaml
+  - proxy/configmap.yaml
+  # Sandbox infrastructure
+  - sandbox/networkpolicy.yaml
+  - sandbox/pvc.yaml
+  - sandbox/agent-prompt.yaml
+
+# The pod-template.yaml is NOT a resource - it's used by the CLI
+# to dynamically create pods. It's included for reference only.

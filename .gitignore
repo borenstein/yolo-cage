@@ -18,3 +18,9 @@ manifests/config.yaml
 # Temporary files
 *.tmp
 *.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/

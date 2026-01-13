@@ -1,0 +1,105 @@
+#!/bin/bash
+# yolo-cage-init - Initialize sandbox and register with dispatcher
+#
+# This script runs when a yolo-cage pod starts. It:
+#   1. Registers this pod with the git dispatcher
+#   2. Sets up the workspace directory
+#   3. Optionally runs a user-provided init script
+
+set -e
+
+BRANCH="${YOLO_CAGE_BRANCH:-}"
+DISPATCHER="${YOLO_CAGE_DISPATCHER:-http://git-dispatcher:8080}"
+WORKSPACE="/workspaces/${BRANCH}"
+
+if [[ -z "$BRANCH" ]]; then
+    echo "Error: YOLO_CAGE_BRANCH not set"
+    exit 1
+fi
+
+echo "yolo-cage: Initializing sandbox for branch ${BRANCH}"
+
+# Register with dispatcher
+echo "yolo-cage: Registering with git dispatcher..."
+max_attempts=30
+attempt=0
+while [[ $attempt -lt $max_attempts ]]; do
+    if curl -sf -X POST "${DISPATCHER}/register?branch=${BRANCH}" >/dev/null 2>&1; then
+        echo "yolo-cage: Registered successfully"
+        break
+    fi
+    attempt=$((attempt + 1))
+    if [[ $attempt -lt $max_attempts ]]; then
+        echo "yolo-cage: Waiting for dispatcher (attempt ${attempt}/${max_attempts})..."
+        sleep 2
+    else
+        echo "yolo-cage: Warning: Could not register with dispatcher. Git operations may fail."
+    fi
+done
+
+# Create workspace directory if needed
+if [[ ! -d "$WORKSPACE" ]]; then
+    echo "yolo-cage: Creating workspace directory..."
+    mkdir -p "$WORKSPACE"
+fi
+
+cd "$WORKSPACE"
+
+# Create yolo-cage CLAUDE.md if no CLAUDE.md exists
+# This informs Claude about the sandbox constraints
+if [[ ! -f "$WORKSPACE/CLAUDE.md" ]]; then
+    echo "yolo-cage: Creating sandbox CLAUDE.md..."
+    cat > "$WORKSPACE/CLAUDE.md" <<'CLAUDE_EOF'
+# yolo-cage Environment
+
+You are running inside yolo-cage, a sandboxed environment for autonomous development.
+Claude Code is running in YOLO mode (--dangerously-skip-permissions), but the sandbox
+enforces containment at the infrastructure level.
+
+## Your Constraints
+
+- **Branch isolation**: You can only commit/push to your assigned branch
+- **Read-only elsewhere**: You can read any branch, but cannot modify others
+- **No PR merging**: You may open PRs for human review, but cannot merge them
+- **Secret scanning**: All network traffic is monitored for secrets
+- **Git enforcement**: Git operations go through a dispatcher that enforces these rules
+
+## Your Capabilities
+
+- Full read access to the repository (all branches)
+- Read/write access to GitHub issues and PR comments
+- Can open pull requests on your branch
+- Can install packages, run tests, do anything inside this container
+- Full access to development tools (npm, pip, make, etc.)
+
+## Workflow
+
+1. Work in this workspace (your branch is set via $YOLO_CAGE_BRANCH)
+2. Commit and push your changes
+3. When done, open a PR and explain what you built
+
+## Notes
+
+- If git operations fail with "yolo-cage:" messages, that's the dispatcher enforcing rules
+- SSH is blocked; all network traffic goes through the egress proxy
+- Your commits will include a footer: "Built autonomously using yolo-cage"
+CLAUDE_EOF
+fi
+
+# Run user init script if present
+if [[ -x "/config/init-workspace" ]]; then
+    echo "yolo-cage: Running user init script..."
+    /config/init-workspace
+fi
+
+echo "yolo-cage: Initialization complete"
+echo ""
+echo "Branch: ${BRANCH}"
+echo "Workspace: ${WORKSPACE}"
+echo ""
+echo "Start Claude Code with:"
+echo "  claude --dangerously-skip-permissions"
+echo ""
+
+# Keep container running
+exec sleep infinity

@@ -1,0 +1,22 @@
+# Persistent storage for workspaces
+# This PVC is shared between the dispatcher and all sandbox pods
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: yolo-cage-workspaces
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  # storageClassName is intentionally omitted to use cluster default
+  # Override in your overlay if needed:
+  #   patches:
+  #     - patch: |-
+  #         - op: add
+  #           path: /spec/storageClassName
+  #           value: your-storage-class
+  #       target:
+  #         kind: PersistentVolumeClaim
+  #         name: yolo-cage-workspaces

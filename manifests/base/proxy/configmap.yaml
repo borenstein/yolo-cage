@@ -1,0 +1,45 @@
+# Egress policy configuration
+# All egress-related settings in one place
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-policy
+data:
+  # Hosts that bypass the proxy entirely (comma-separated)
+  # Traffic to these hosts is NOT scanned - use for trusted, latency-sensitive services
+  # Internal cluster traffic is always bypassed automatically
+  PROXY_BYPASS: "api.anthropic.com"
+
+  # Domains blocked by the proxy (JSON array)
+  # Requests to these hosts through the proxy are rejected
+  BLOCKED_DOMAINS: |
+    [
+      "pastebin.com",
+      "paste.ee",
+      "hastebin.com",
+      "dpaste.org",
+      "file.io",
+      "transfer.sh",
+      "0x0.st",
+      "ix.io",
+      "sprunge.us",
+      "termbin.com"
+    ]
+
+  # GitHub API endpoints blocked (defense-in-depth)
+  # JSON array of [method, regex_pattern] pairs
+  GITHUB_API_BLOCKED: |
+    [
+      ["PUT", "/repos/[^/]+/[^/]+/pulls/\\d+/merge"],
+      ["DELETE", "/repos/.*"],
+      ["DELETE", "/orgs/.*"],
+      ["DELETE", "/user/.*"],
+      ["GET", "/repos/[^/]+/[^/]+/actions/secrets.*"],
+      ["GET", "/orgs/[^/]+/actions/secrets.*"],
+      ["PATCH", "/repos/[^/]+/[^/]+$"],
+      ["PUT", "/repos/[^/]+/[^/]+/collaborators.*"],
+      ["POST", "/repos/[^/]+/[^/]+/hooks"],
+      ["PATCH", "/repos/[^/]+/[^/]+/hooks/\\d+"],
+      ["PUT", "/repos/[^/]+/[^/]+/branches/[^/]+/protection"],
+      ["DELETE", "/repos/[^/]+/[^/]+/branches/[^/]+/protection"]
+    ]

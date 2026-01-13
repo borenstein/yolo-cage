@@ -1,0 +1,26 @@
+# Git Dispatcher Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dispatcher-config
+  labels:
+    app: git-dispatcher
+data:
+  # Workspace root where agent repos are mounted
+  WORKSPACE_ROOT: "/workspaces"
+
+  # Git user identity (commits will use this)
+  GIT_USER_NAME: "yolo-cage"
+  GIT_USER_EMAIL: "yolo-cage@localhost"
+
+  # Version for commit footers
+  YOLO_CAGE_VERSION: "0.2.0"
+
+  # Pre-push hooks (JSON array)
+  # Default: TruffleHog secret scanning
+  # Set to "[]" to disable, or add your own hooks
+  PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
+
+  # Commit message footer (set to empty to disable)
+  # Automatically appended to all commits
+  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"

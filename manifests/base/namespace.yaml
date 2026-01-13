@@ -1,0 +1,9 @@
+# Namespace for yolo-cage
+# Name is set by kustomize from kustomization.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yolo-cage
+  labels:
+    app.kubernetes.io/name: yolo-cage
+    purpose: ai-development

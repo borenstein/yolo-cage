@@ -1,12 +1,15 @@
-# Yolo-cage - Claude Code sandbox for YOLO mode development
-# Full-stack development environment with Claude Code CLI
+# yolo-cage v2 - Claude Code sandbox with git dispatcher
+# Full-stack development environment with enforced branch isolation
 
 FROM python:3.12-slim-bookworm
 
 # Install system dependencies
+# Note: git is installed but will be shadowed by our shim
+# Note: openssh-client kept for compatibility but blocked by NetworkPolicy
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
+    jq \
     make \
     tmux \
     openssh-client \
@@ -36,18 +39,25 @@ USER dev
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/dev/.local/bin:$PATH"
 
-# Set up SSH directory
-RUN mkdir -p /home/dev/.ssh && chmod 700 /home/dev/.ssh
-
 # Working directory
 WORKDIR /workspace
 
-# Copy helper scripts
-COPY scripts/ /home/dev/bin/
+# Copy scripts
+COPY scripts/git-shim /usr/local/bin/git-shim
+COPY scripts/yolo-cage-init /usr/local/bin/yolo-cage-init
 USER root
-RUN chown -R dev:dev /home/dev/bin && chmod +x /home/dev/bin/*
-USER dev
-ENV PATH="/home/dev/bin:$PATH"
+RUN chmod +x /usr/local/bin/git-shim /usr/local/bin/yolo-cage-init
 
-# Default command - keep container running
-CMD ["sleep", "infinity"]
+# Create a wrapper that uses the git shim
+# Real git is at /usr/bin/git, shim intercepts at /usr/local/bin/git
+RUN echo '#!/bin/bash' > /usr/local/bin/git && \
+    echo 'exec /usr/local/bin/git-shim "$@"' >> /usr/local/bin/git && \
+    chmod +x /usr/local/bin/git
+
+USER dev
+
+# Environment for git dispatcher (overridden by pod env)
+ENV YOLO_CAGE_DISPATCHER="http://git-dispatcher:8080"
+
+# Default command - run init script then sleep
+CMD ["/usr/local/bin/yolo-cage-init"]

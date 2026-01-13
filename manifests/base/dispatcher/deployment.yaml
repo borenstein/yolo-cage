@@ -1,0 +1,55 @@
+# Git Dispatcher Deployment
+# Executes git commands on behalf of sandboxed agents
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-dispatcher
+  labels:
+    app: git-dispatcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: git-dispatcher
+  template:
+    metadata:
+      labels:
+        app: git-dispatcher
+    spec:
+      containers:
+        - name: dispatcher
+          image: localhost:32000/git-dispatcher:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: dispatcher-config
+            - secretRef:
+                name: github-pat
+                optional: true
+          volumeMounts:
+            - name: workspaces
+              mountPath: /workspaces
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: workspaces
+          persistentVolumeClaim:
+            claimName: yolo-cage-workspaces

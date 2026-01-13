@@ -1,0 +1,15 @@
+# Git Dispatcher Service
+# Exposes the dispatcher to sandbox pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-dispatcher
+  labels:
+    app: git-dispatcher
+spec:
+  selector:
+    app: git-dispatcher
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

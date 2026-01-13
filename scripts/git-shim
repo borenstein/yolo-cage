@@ -1,0 +1,73 @@
+#!/bin/bash
+# yolo-cage git shim
+#
+# Replaces /usr/bin/git in sandbox containers.
+# Delegates all git operations to the dispatcher service.
+#
+# The dispatcher authenticates by source IP, enforces branch restrictions,
+# and executes the real git command.
+
+set -e
+
+DISPATCHER_URL="${YOLO_CAGE_DISPATCHER:-http://git-dispatcher:8080}"
+
+# Get current working directory
+CWD="$(pwd)"
+
+# Build JSON payload
+# Use jq if available, otherwise simple bash escaping
+if command -v jq &>/dev/null; then
+    # Build args array properly with jq
+    PAYLOAD=$(jq -n \
+        --argjson args "$(printf '%s\n' "$@" | jq -R . | jq -s .)" \
+        --arg cwd "$CWD" \
+        '{args: $args, cwd: $cwd}')
+else
+    # Fallback: simple JSON construction (assumes no special chars in args)
+    ARGS_JSON="["
+    first=true
+    for arg in "$@"; do
+        if [ "$first" = true ]; then
+            first=false
+        else
+            ARGS_JSON+=","
+        fi
+        # Escape quotes and backslashes
+        escaped=$(echo "$arg" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+        ARGS_JSON+="\"$escaped\""
+    done
+    ARGS_JSON+="]"
+    PAYLOAD="{\"args\":$ARGS_JSON,\"cwd\":\"$CWD\"}"
+fi
+
+# Make request to dispatcher
+# Use curl with:
+#   -s: silent (no progress)
+#   -S: show errors
+#   -f: fail on HTTP errors (but we handle 200 with exit code header)
+#   -D: dump headers to temp file
+#   --connect-timeout: don't hang forever
+
+HEADER_FILE=$(mktemp)
+trap "rm -f $HEADER_FILE" EXIT
+
+RESPONSE=$(curl -sS \
+    --connect-timeout 5 \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    -D "$HEADER_FILE" \
+    "$DISPATCHER_URL/git" 2>&1) || {
+    echo "yolo-cage: failed to connect to git dispatcher" >&2
+    echo "Error: $RESPONSE" >&2
+    exit 1
+}
+
+# Extract exit code from header
+EXIT_CODE=$(grep -i "X-Yolo-Cage-Exit-Code:" "$HEADER_FILE" | tr -d '\r' | awk '{print $2}')
+EXIT_CODE="${EXIT_CODE:-0}"
+
+# Output the response (this is git's stdout/stderr combined)
+echo -n "$RESPONSE"
+
+exit "$EXIT_CODE"

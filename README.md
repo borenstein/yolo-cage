@@ -1,8 +1,12 @@
 # yolo-cage: Kubernetes sandbox for Claude Code in YOLO mode
 
-> **Disclaimer**: This was rigged up to solve a specific problem. It reduces risk but does not eliminate it. Do not use with production secrets or credentials where exfiltration would be catastrophic. See the [license](#license) section below.
+> **Disclaimer**: This reduces risk but does not eliminate it. Do not use with production secrets or credentials where exfiltration would be catastrophic. See the [license](#license) section below.
 
-A Kubernetes sandbox for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in YOLO mode (`--dangerously-skip-permissions`) with egress filtering to prevent secret exfiltration.
+A Kubernetes sandbox for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents in YOLO mode (`--dangerously-skip-permissions`) with robust containment:
+
+1. **Cannot exfiltrate secrets** - egress proxy scans all HTTP/HTTPS
+2. **Cannot modify code outside its branch** - git dispatcher enforces
+3. **Cannot merge its own PRs** - agent proposes, human disposes
 
 ## The Problem
 
@@ -16,104 +20,157 @@ Any two are fine. All three create exfiltration risk.
 
 ## The Solution
 
-Two layers of containment:
+The agent is a **proposer**, not an executor. All the permission prompts that would normally interrupt autonomous development are **deferred** to a single review when the agent opens a PR.
 
-1. **Container isolation**: The agent runs in a Kubernetes pod with restricted privileges—non-root user, isolated filesystem, no host access. This is strong OS-level sandboxing.
-
-2. **Egress filtering**: All HTTP/HTTPS traffic passes through a scanning proxy. The proxy uses [LLM-Guard](https://github.com/protectai/llm-guard) (with [detect-secrets](https://github.com/Yelp/detect-secrets)) to block requests containing credentials.
-
-The agent can do whatever it wants inside the container. It just can't send secrets out.
-
-## Architecture
+### Architecture
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│ Kubernetes Cluster                                         │
-│                                                            │
-│  ┌─────────────────┐   ┌──────────────┐   ┌─────────────┐  │
-│  │  yolo-cage pod  │──▶│ egress-proxy │──▶│  LLM-Guard  │  │
-│  │                 │   │  (mitmproxy) │   │             │  │
-│  │  Claude Code    │   └──────┬───────┘   └─────────────┘  │
-│  │  (YOLO mode)    │          │                            │
-│  │                 │          ▼                            │
-│  └────────┬────────┘   ┌──────────────┐                    │
-│           │            │   Internet   │ (if clean)         │
-│           └───SSH─────▶│   + GitHub   │                    │
-|                        └──────────────┘                    |
-└────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ Kubernetes Cluster                                                   │
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ yolo-cage    │  │ yolo-cage    │  │ yolo-cage    │              │
+│  │ (feature-a)  │  │ (feature-b)  │  │ (bugfix-c)   │              │
+│  │              │  │              │  │              │              │
+│  │ /usr/bin/git │  │ /usr/bin/git │  │ /usr/bin/git │              │
+│  │ (shim)       │  │ (shim)       │  │ (shim)       │              │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
+│         │                 │                 │                       │
+│         └────────────────┬┴─────────────────┘                       │
+│                          │                                          │
+│                          ▼                                          │
+│                 ┌─────────────────┐                                 │
+│                 │  Git Dispatcher │                                 │
+│                 │                 │                                 │
+│                 │ • Command gate  │                                 │
+│                 │ • Branch enforce│                                 │
+│                 │ • Pre-push hooks│                                 │
+│                 │ • Real git here │                                 │
+│                 └────────┬────────┘                                 │
+│                          │                                          │
+│         ┌────────────────┴────────────────┐                         │
+│         ▼                                 ▼                         │
+│  ┌─────────────┐                 ┌─────────────────┐               │
+│  │   GitHub    │                 │  Egress Proxy   │               │
+│  │  (HTTPS)    │                 │  (HTTP/HTTPS)   │               │
+│  └─────────────┘                 └────────┬────────┘               │
+│                                           │                         │
+│                                           ▼                         │
+│                                  ┌─────────────────┐               │
+│                                  │   LLM-Guard     │               │
+│                                  │ (secret scan)   │               │
+│                                  └─────────────────┘               │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**What gets blocked:**
-- Anthropic API keys (`sk-ant-*`)
-- AWS credentials (`AKIA*`)
-- GitHub tokens (`ghp_*`, `github_pat_*`)
-- SSH private keys
-- Generic secrets (via detect-secrets heuristics)
-- Paste sites (pastebin.com, hastebin.com, etc.)
-- File sharing (file.io, transfer.sh, 0x0.st, etc.)
+**One pod per branch.** Each agent gets its own isolated pod with:
+- **State isolation**: Agents cannot interfere with each other's work
+- **Incorruptible identity**: Dispatcher identifies agents by pod IP
+- **Clean failure modes**: If one agent goes haywire, others are unaffected
+
+### Git Shim Architecture
+
+Claude Code uses git normally - all enforcement is transparent. A shim replaces `/usr/bin/git` and delegates to the dispatcher:
+
+```
+Agent runs: git commit -m "Add feature"
+     │
+     ▼
+Shim intercepts, POSTs to dispatcher
+     │
+     ▼
+Dispatcher enforces branch rules, runs TruffleHog, executes real git
+     │
+     ▼
+Output returned to agent
+```
 
 ## Quick Start
-
-See [docs/setup.md](docs/setup.md) for detailed instructions. The short version:
 
 ```bash
 # 1. Clone this repo
 git clone https://github.com/borenstein/yolo-cage.git
 cd yolo-cage
 
-# 2. Edit configuration
-cp manifests/config.example.yaml manifests/config.yaml
-# Edit with your namespace, repo URL, registry, etc.
+# 2. Create namespace and secrets
+kubectl create namespace yolo-cage
+kubectl create secret generic yolo-cage-credentials \
+  --namespace=yolo-cage \
+  --from-file=claude-oauth-credentials=claude-credentials.json
 
-# 3. Create your secrets (see docs/setup.md)
-# - GitHub deploy key
-# - Claude OAuth credentials
+kubectl create secret generic github-pat \
+  --namespace=yolo-cage \
+  --from-literal=GITHUB_PAT=ghp_your_token_here
 
-# 4. Build and deploy
-./deploy.sh
+# 3. Build and push images (MicroK8s example)
+docker build -t localhost:32000/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
+docker push localhost:32000/yolo-cage:latest
 
-# 5. Get into the pod and start working
-kubectl exec -it -n <namespace> deployment/yolo-cage -- bash
-init-workspace
-thread new my-feature
+docker build -t localhost:32000/git-dispatcher:latest -f dockerfiles/dispatcher/Dockerfile .
+docker push localhost:32000/git-dispatcher:latest
+
+docker build -t localhost:32000/egress-proxy:latest -f dockerfiles/proxy/Dockerfile .
+docker push localhost:32000/egress-proxy:latest
+
+# 4. Deploy infrastructure
+kubectl apply -n yolo-cage -f manifests/
+
+# 5. Create a sandbox for your feature branch
+./scripts/yolo-cage create feature-auth
+
+# 6. Launch Claude
+./scripts/yolo-cage attach feature-auth
+```
+
+## CLI Commands
+
+```bash
+yolo-cage create <branch> [-n namespace]   # Create pod for branch
+yolo-cage list [-n namespace]              # List active pods
+yolo-cage attach <branch> [-n namespace]   # Launch Claude in pod
+yolo-cage delete <branch> [-n namespace]   # Remove pod
+yolo-cage logs <branch> [-n namespace]     # Tail pod logs
 ```
 
 ## Documentation
 
 - [Architecture](docs/architecture.md) - Why this approach, threat model, limitations
 - [Setup](docs/setup.md) - Prerequisites, step-by-step deployment
-- [Customization](docs/customization.md) - Adapting for your project and cluster
+- [Configuration](docs/configuration.md) - All configuration options (egress policy, bypasses, hooks, etc.)
+- [Customization](docs/customization.md) - Advanced customizations (Dockerfile changes, different k8s distros)
 
-## Workflow: Parallel Development with Worktrees
+## What Gets Blocked
 
-Each feature gets its own git worktree and tmux session:
+**Secrets:**
+- Anthropic API keys (`sk-ant-*`)
+- AWS credentials (`AKIA*`)
+- GitHub tokens (`ghp_*`, `github_pat_*`)
+- SSH private keys
+- Generic secrets (via detect-secrets heuristics)
 
-```bash
-thread new feature-auth        # Create worktree, start tmux session with Claude
-thread new feature-api main    # Branch from specific ref
-thread ls                      # List active worktrees and sessions
-thread rm feature-auth         # Clean up when done
-```
+**Domains:**
+- Paste sites (pastebin.com, hastebin.com, etc.)
+- File sharing (file.io, transfer.sh, 0x0.st, etc.)
 
-Multiple features can run in parallel. Detach with `Ctrl-b d`, reattach with `tmux attach -t feature-name`.
+**GitHub API:**
+- `PUT /repos/*/pulls/*/merge` - Cannot merge PRs
+- `DELETE /repos/*` - Cannot delete anything
+- `GET /repos/*/actions/secrets/*` - Cannot read GH secrets
+- Webhooks, branch protection modifications
 
-### First-Turn Prompts
-
-Optionally, create `scripts/thread.first-turn.txt` to automatically orient new agents. This prompt runs when a thread starts, useful for ensuring agents review docs, run setup, and report the current commit SHA before you begin. See [docs/customization.md](docs/customization.md#first-turn-prompts).
-
-### Restricting GitHub CLI Access
-
-You may want agents to read issues for context without being able to merge PRs or modify repo settings. Use a fine-grained personal access token scoped to issues only. See [docs/customization.md](docs/customization.md#restricting-github-cli-access).
+**Git Operations:**
+- Push to non-assigned branches
+- Remote management, credential access, config changes
 
 ## Known Limitations
 
-- **SSH bypasses the proxy**: Git over SSH goes direct. Secrets could theoretically be exfiltrated via commit messages or branch names. Mitigation: use git-over-HTTPS, or accept this risk.
-- **Prompt injection**: The egress filter mitigates many prompt injection attacks—even if a malicious file tricks the agent into attempting exfiltration, the secrets get blocked at the network layer. However, sophisticated attacks (DNS exfiltration, steganography, encoding secrets in URL paths) could still bypass scanning.
-- **Fail-open by default**: If LLM-Guard is down, requests pass through (with warnings). Change this in `secret_scanner.py` if you want fail-closed.
+- **Pre-push hooks only**: TruffleHog runs before push, not on every commit
+- **Prompt injection**: The egress filter mitigates many attacks, but sophisticated encoding could bypass scanning
+- **Fail-closed**: If LLM-Guard is down, requests are blocked
 
 ## Requirements
 
-- Kubernetes cluster (developed on MicroK8s; may need adaptation for others)
+- Kubernetes cluster (developed on MicroK8s)
 - Container registry accessible from the cluster
 - Docker (for building images)
 - [Claude](https://claude.ai) account with OAuth credentials
@@ -126,11 +183,7 @@ MIT. See [LICENSE](LICENSE) for full text.
 
 > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 > IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-> SOFTWARE.
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ## Credits
 

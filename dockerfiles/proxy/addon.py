@@ -15,38 +15,28 @@ from datetime import datetime
 from typing import Optional
 
 import requests
-from mitmproxy import http, ctx
+from mitmproxy import http
+
+from policy import check_blocked_domain, check_github_api
 
 # Configuration
 LLM_GUARD_URL = os.environ.get("LLM_GUARD_URL", "http://llm-guard:8000")
 LLM_GUARD_TOKEN = os.environ.get("LLM_GUARD_TOKEN", "internal-only")
 LOG_FILE = os.environ.get("LOG_FILE", "/var/log/proxy/requests.jsonl")
 
-# Blocklist for known exfiltration sites
-BLOCKED_DOMAINS = {
-    "pastebin.com",
-    "paste.ee",
-    "hastebin.com",
-    "dpaste.org",
-    "file.io",
-    "transfer.sh",
-    "0x0.st",
-    "ix.io",
-    "sprunge.us",
-    "termbin.com",
-}
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("secret_scanner")
+logger = logging.getLogger("egress_proxy")
 
 
-class SecretScanner:
+class EgressProxy:
+    """mitmproxy addon that enforces egress policy and scans for secrets."""
+
     def __init__(self):
         self.llm_guard_available = False
         self._check_llm_guard()
 
-    def _check_llm_guard(self):
+    def _check_llm_guard(self) -> None:
         """Check if LLM-Guard is available."""
         try:
             resp = requests.get(f"{LLM_GUARD_URL}/healthz", timeout=5)
@@ -63,6 +53,7 @@ class SecretScanner:
         """
         Scan text for secrets using LLM-Guard.
         Returns (has_secrets, list of detected types).
+        Fails closed if scanner is unavailable.
         """
         if not text or len(text) < 10:
             return False, []
@@ -70,9 +61,8 @@ class SecretScanner:
         if not self.llm_guard_available:
             self._check_llm_guard()
             if not self.llm_guard_available:
-                # Fail open if LLM-Guard is down (log warning)
-                logger.warning("LLM-Guard unavailable, allowing request")
-                return False, []
+                logger.error("LLM-Guard unavailable, blocking request (fail-closed)")
+                return True, ["scanner_unavailable"]
 
         try:
             resp = requests.post(
@@ -85,10 +75,8 @@ class SecretScanner:
                 result = resp.json()
                 logger.debug(f"LLM-Guard response: {result}")
 
-                # Top-level is_valid indicates if content passed all scanners
                 is_valid = result.get("is_valid", True)
                 if not is_valid:
-                    # Find which scanners flagged (score < 1.0 means flagged)
                     scanners = result.get("scanners", {})
                     detected = [name for name, score in scanners.items() if score < 1.0]
                     logger.info(f"Secrets detected by scanners: {detected}")
@@ -107,8 +95,8 @@ class SecretScanner:
         blocked: bool,
         reason: Optional[str] = None,
         detected_secrets: Optional[list] = None,
-    ):
-        """Log request details to JSONL file."""
+    ) -> None:
+        """Log request details to JSONL file and stdout."""
         log_entry = {
             "timestamp": datetime.utcnow().isoformat(),
             "method": flow.request.method,
@@ -127,64 +115,55 @@ class SecretScanner:
         except Exception as e:
             logger.error(f"Failed to write log: {e}")
 
-        # Also log to stdout for kubectl logs
         if blocked:
             logger.warning(f"BLOCKED: {flow.request.method} {flow.request.pretty_url} - {reason}")
         else:
             logger.info(f"ALLOWED: {flow.request.method} {flow.request.pretty_url}")
 
-    def request(self, flow: http.HTTPFlow):
+    def _block(self, flow: http.HTTPFlow, message: bytes, reason: str, secrets: Optional[list] = None) -> None:
+        """Block a request with a 403 response."""
+        flow.response = http.Response.make(
+            403,
+            message,
+            {"Content-Type": "text/plain"},
+        )
+        self._log_request(flow, blocked=True, reason=reason, detected_secrets=secrets)
+
+    def request(self, flow: http.HTTPFlow) -> None:
         """Intercept and scan outgoing requests."""
         host = flow.request.host
+        method = flow.request.method
+        path = flow.request.path
+
+        # Check GitHub API policy
+        github_block = check_github_api(host, method, path)
+        if github_block:
+            self._block(flow, b"Blocked: this GitHub API operation is not permitted in yolo-cage", github_block)
+            return
 
         # Check domain blocklist
-        for blocked_domain in BLOCKED_DOMAINS:
-            if host == blocked_domain or host.endswith(f".{blocked_domain}"):
-                flow.response = http.Response.make(
-                    403,
-                    b"Blocked: destination is on blocklist",
-                    {"Content-Type": "text/plain"},
-                )
-                self._log_request(flow, blocked=True, reason=f"blocked_domain:{blocked_domain}")
-                return
+        blocked_domain = check_blocked_domain(host)
+        if blocked_domain:
+            self._block(flow, b"Blocked: destination is on blocklist", f"blocked_domain:{blocked_domain}")
+            return
 
         # Scan request body for secrets
         body = flow.request.get_text()
         if body:
             has_secrets, detected = self._scan_for_secrets(body)
             if has_secrets:
-                flow.response = http.Response.make(
-                    403,
-                    b"Blocked: request body contains potential secrets",
-                    {"Content-Type": "text/plain"},
-                )
-                self._log_request(
-                    flow,
-                    blocked=True,
-                    reason="secrets_detected",
-                    detected_secrets=detected,
-                )
+                self._block(flow, b"Blocked: request body contains potential secrets", "secrets_detected", detected)
                 return
 
-        # Also scan URL parameters (secrets sometimes end up in URLs)
+        # Scan long URLs (secrets sometimes end up in URLs)
         url = flow.request.pretty_url
-        if len(url) > 100:  # Only scan long URLs
+        if len(url) > 100:
             has_secrets, detected = self._scan_for_secrets(url)
             if has_secrets:
-                flow.response = http.Response.make(
-                    403,
-                    b"Blocked: URL contains potential secrets",
-                    {"Content-Type": "text/plain"},
-                )
-                self._log_request(
-                    flow,
-                    blocked=True,
-                    reason="secrets_in_url",
-                    detected_secrets=detected,
-                )
+                self._block(flow, b"Blocked: URL contains potential secrets", "secrets_in_url", detected)
                 return
 
         self._log_request(flow, blocked=False)
 
 
-addons = [SecretScanner()]
+addons = [EgressProxy()]
