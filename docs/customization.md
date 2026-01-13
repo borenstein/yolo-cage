@@ -1,6 +1,8 @@
 # Customization Guide
 
-> **Note**: When customizing, maintain the security properties: non-root user, NetworkPolicy egress restrictions, and proxy-based scanning. Disabling these components removes the exfiltration controls.
+This guide covers advanced customizations that go beyond the standard [Configuration Reference](configuration.md). For most deployments, you only need to edit your kustomize overlay - see [Configuration Reference](configuration.md) first.
+
+> **Note**: When customizing, maintain the security properties: non-root user, NetworkPolicy egress restrictions, and proxy-based scanning. Disabling these removes exfiltration controls.
 
 ## Changing the Development Environment
 
@@ -24,80 +26,69 @@ Rebuild and push:
 ```bash
 docker build -t <registry>/yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
 docker push <registry>/yolo-cage:latest
-kubectl rollout restart -n <namespace> deployment/yolo-cage
 ```
-
-### Resource Limits
-
-Edit `manifests/sandbox/deployment.yaml`:
-
-```yaml
-resources:
-  requests:
-    cpu: "2"        # Minimum CPU
-    memory: "8Gi"   # Minimum memory
-  limits:
-    cpu: "8"        # Maximum CPU
-    memory: "32Gi"  # Maximum memory
-```
-
-Increase for large codebases or memory-intensive builds.
 
 ## Adding Secret Patterns
 
-### Regex Patterns
+### LLM-Guard Regex Patterns
 
-Edit `manifests/proxy/llm-guard-config.yaml`:
+The LLM-Guard ConfigMap contains regex patterns for secret detection. To add patterns, patch the ConfigMap in your overlay:
 
 ```yaml
-- type: Regex
-  params:
-    patterns:
-      # Existing patterns...
-
-      # Add your own:
-      - "PRIVATE_KEY_[A-Za-z0-9]{32}"  # Your internal format
-      - "mycompany_api_[a-f0-9]{40}"   # Company-specific tokens
-    match_type: "search"
-    redact: true
-```
-
-### Adding to Domain Blocklist
-
-Edit `dockerfiles/proxy/secret_scanner.py`:
-
-```python
-BLOCKED_DOMAINS = {
-    # Existing...
-
-    # Add more:
-    "webhook.site",
-    "requestbin.com",
-    "your-honeypot.example.com",
-}
+patches:
+  - target:
+      kind: ConfigMap
+      name: llm-guard-config
+    patch: |
+      - op: add
+        path: /data/scanners.yml
+        value: |
+          input_scanners:
+            - type: Secrets
+              params:
+                redact_mode: "all"
+            - type: Regex
+              params:
+                patterns:
+                  # Default patterns
+                  - "-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"
+                  - "AKIA[0-9A-Z]{16}"
+                  - "sk-ant-[a-zA-Z0-9-_]+"
+                  - "ghp_[a-zA-Z0-9]{36}"
+                  - "github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}"
+                  # Your custom patterns
+                  - "PRIVATE_KEY_[A-Za-z0-9]{32}"
+                  - "mycompany_api_[a-f0-9]{40}"
+                match_type: "search"
+                redact: true
+          output_scanners: []
+          settings:
+            lazy_load: false
+            low_cpu_mem_usage: true
 ```
 
 ## Different Kubernetes Distributions
 
 ### MicroK8s
 
-Default configuration. Uses:
-- `localhost:32000` registry
-- `microk8s kubectl` commands
+Default configuration. Uses `localhost:32000` registry.
 
 ### k3s
 
-Change registry to your configured registry or use Docker Hub:
+Use your configured registry or Docker Hub. Update images in your overlay:
 ```yaml
-# manifests/config.yaml
-registry: docker.io/yourusername
+images:
+  - name: localhost:32000/yolo-cage
+    newName: docker.io/yourusername/yolo-cage
 ```
 
 ### EKS/GKE/AKS
 
 Use ECR/GCR/ACR respectively:
 ```yaml
-registry: 123456789.dkr.ecr.us-west-2.amazonaws.com/yolo-cage
+images:
+  - name: localhost:32000/yolo-cage
+    newName: 123456789.dkr.ecr.us-west-2.amazonaws.com/yolo-cage
 ```
 
 Ensure your nodes can pull from the registry (IAM roles, service accounts, etc.).
@@ -108,126 +99,46 @@ Load images directly:
 ```bash
 docker build -t yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
 kind load docker-image yolo-cage:latest
-
-docker build -t egress-proxy:latest -f dockerfiles/proxy/Dockerfile .
-kind load docker-image egress-proxy:latest
 ```
 
-Update manifests to use local images:
+Update overlay to use local images:
 ```yaml
-image: yolo-cage:latest
-imagePullPolicy: Never
-```
-
-## Storage Classes
-
-Default uses `data-hostpath`. Change for your cluster:
-
-```yaml
-# manifests/sandbox/pvc.yaml
-spec:
-  storageClassName: standard        # GKE
-  storageClassName: gp2             # EKS
-  storageClassName: default         # Most clusters
-  storageClassName: local-path      # k3s
+images:
+  - name: localhost:32000/yolo-cage
+    newName: yolo-cage
+    newTag: latest
+patches:
+  - target:
+      kind: Deployment
+      name: yolo-cage
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
 ```
 
 ## Multiple Projects
 
-To run sandboxes for multiple projects, deploy to different namespaces:
+Deploy to different namespaces for multiple projects:
 
 ```bash
 # Project A
-kubectl create namespace project-a
-# Create secrets, deploy manifests with namespace: project-a
+kubectl apply -k manifests/overlays/project-a
 
 # Project B
-kubectl create namespace project-b
-# Create secrets, deploy manifests with namespace: project-b
+kubectl apply -k manifests/overlays/project-b
 ```
 
 Each namespace is isolated with its own:
-- yolo-cage pod
+- Agent pods
 - Egress proxy
 - LLM-Guard instance
 - Workspace PVC
-
-## Fail-Closed Mode
-
-By default, if LLM-Guard is unavailable, requests pass through (logged). To block instead:
-
-Edit `dockerfiles/proxy/secret_scanner.py`:
-
-```python
-def _scan_for_secrets(self, text: str) -> tuple[bool, list[str]]:
-    # ...
-
-    if not self.llm_guard_available:
-        self._check_llm_guard()
-        if not self.llm_guard_available:
-            # CHANGE: Block instead of allow
-            logger.error("LLM-Guard unavailable, blocking request")
-            return True, ["scanner_unavailable"]
-```
-
-## Git over HTTPS (Instead of SSH)
-
-To route all git traffic through the proxy (for scanning):
-
-1. Use HTTPS URL in your config:
-```yaml
-repo_url: https://github.com/you/your-project.git
-```
-
-2. Create a GitHub personal access token with repo access
-
-3. Configure git credential helper in `scripts/init-workspace`:
-```bash
-git config --global credential.helper store
-echo "https://your-username:ghp_token@github.com" > ~/.git-credentials
-```
-
-4. Remove SSH from NetworkPolicy egress rules
-
-Now all git operations go through the proxy and get scanned.
-
-## First-Turn Prompts
-
-New threads can automatically run a "first turn" prompt that orients the agent before you start working. This is useful for:
-
-- Ensuring agents review documentation (CLAUDE.md) before making changes
-- Running setup scripts so the agent understands the bootstrapped environment
-- Getting a summary of the project state and latest commit
-
-### Setup
-
-Create `scripts/thread.first-turn.txt` with your prompt:
-
-```bash
-cp scripts/thread.first-turn.txt.example scripts/thread.first-turn.txt
-# Edit to customize
-```
-
-Example prompt:
-```
-Please review this project's documentation and codebase, especially CLAUDE.md.
-Then run the setup script(s). Return with a brief summary of what this repo is,
-how it works, and indicate the SHA of the latest commit.
-```
-
-When `thread new <name>` creates a new worktree, it will pass this prompt to Claude automatically.
-
-### Skipping the First Turn
-
-If you don't want a first-turn prompt, simply don't create the file. The script checks for its existence and runs without a prompt if absent.
+- Git dispatcher
 
 ## Restricting GitHub CLI Access
 
-In YOLO mode, the agent has full access to any tools installed in the container, including the GitHub CLI (`gh`). You may want agents to access issues for context without being able to merge PRs, delete branches, or modify repository settings.
-
-### Solution: Fine-Grained Personal Access Tokens
-
-GitHub's [fine-grained personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) (free for all users) can be scoped to specific repositories and permissions.
+In YOLO mode, agents have full access to the GitHub CLI (`gh`). Use fine-grained tokens to limit what agents can do.
 
 ### Creating an Issues-Only Token
 
@@ -235,52 +146,18 @@ GitHub's [fine-grained personal access tokens](https://docs.github.com/en/authen
 
 2. Click **Generate new token**
 
-3. Configure the token:
-   - **Token name**: `yolo-cage-issues` (or similar)
-   - **Expiration**: Choose based on your security needs
-   - **Repository access**: Select **Only select repositories** and choose your project repo
-   - **Permissions**: Under "Repository permissions", set:
-     - **Issues**: Read and write
-     - Leave all other permissions as "No access"
+3. Configure:
+   - **Repository access**: Select specific repositories
+   - **Permissions**: Set only "Issues: Read and write"
 
-4. Click **Generate token** and copy it
-
-### Configuring the Container
-
-The deployment is pre-configured to mount an optional `yolo-cage-github-token` secret. Just create the secret:
-
+4. Create the secret:
 ```bash
 kubectl create secret generic yolo-cage-github-token \
-  --namespace=<your-namespace> \
+  --namespace=<namespace> \
   --from-literal=token=github_pat_xxxxx
 ```
 
-The `init-workspace` script automatically configures `gh` if the token is present.
-
-### What This Prevents
-
-With an issues-only token, even if the agent runs commands like:
-- `gh pr merge` - Fails (no PR permissions)
-- `gh repo delete` - Fails (no admin permissions)
-- `gh release create` - Fails (no contents permissions)
-
-The security boundary is enforced at GitHub's API level, not by restricting which commands the agent can run.
-
-## Disabling Components
-
-### Run without secret scanning (not recommended)
-
-Remove proxy-related environment variables from yolo-cage deployment:
-```yaml
-env:
-  # Remove HTTP_PROXY, HTTPS_PROXY, etc.
-```
-
-Update NetworkPolicy to allow direct internet access.
-
-### Run without LLM-Guard (regex only)
-
-Modify `secret_scanner.py` to skip the LLM-Guard call and rely only on regex patterns. Less thorough but no external dependency.
+With an issues-only token, commands like `gh pr merge` or `gh repo delete` will fail at GitHub's API level.
 
 ## Observability
 
@@ -289,20 +166,24 @@ Modify `secret_scanner.py` to skip the LLM-Guard call and rely only on regex pat
 Add a sidecar to ship logs:
 
 ```yaml
-containers:
-  - name: egress-proxy
-    # ... existing config
-
-  - name: log-shipper
-    image: fluent/fluent-bit:latest
-    volumeMounts:
-      - name: proxy-logs
-        mountPath: /var/log/proxy
+patches:
+  - target:
+      kind: Deployment
+      name: egress-proxy
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/-
+        value:
+          name: log-shipper
+          image: fluent/fluent-bit:latest
+          volumeMounts:
+            - name: proxy-logs
+              mountPath: /var/log/proxy
 ```
 
-### Metrics
+### Prometheus Metrics
 
-LLM-Guard exposes Prometheus metrics. Add a ServiceMonitor if you have Prometheus Operator:
+LLM-Guard exposes Prometheus metrics. Add a ServiceMonitor if using Prometheus Operator:
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -317,3 +198,13 @@ spec:
     - port: http
       path: /metrics
 ```
+
+## Disabling Components
+
+### Run without secret scanning (not recommended)
+
+Remove proxy environment variables from your overlay and update NetworkPolicy to allow direct internet access. This removes exfiltration protection.
+
+### Run without LLM-Guard
+
+Modify `dockerfiles/proxy/addon.py` to skip the LLM-Guard call and rely only on domain blocklist. Less thorough but no external dependency.

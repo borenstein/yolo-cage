@@ -60,11 +60,11 @@ spec:
           value: "http://egress-proxy:8080"
         - name: https_proxy
           value: "http://egress-proxy:8080"
-        # Don't proxy internal cluster traffic or dispatcher
+        # Don't proxy internal cluster traffic, dispatcher, or user-configured bypasses
         - name: NO_PROXY
-          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher"
+          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher,${PROXY_BYPASS}"
         - name: no_proxy
-          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher"
+          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher,${PROXY_BYPASS}"
         # Trust the proxy's CA cert for HTTPS interception
         - name: NODE_EXTRA_CA_CERTS
           value: "/etc/ssl/certs/mitmproxy-ca.pem"

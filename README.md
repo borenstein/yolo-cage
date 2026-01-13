@@ -136,7 +136,8 @@ yolo-cage logs <branch> [-n namespace]     # Tail pod logs
 
 - [Architecture](docs/architecture.md) - Why this approach, threat model, limitations
 - [Setup](docs/setup.md) - Prerequisites, step-by-step deployment
-- [Customization](docs/customization.md) - Adapting for your project and cluster
+- [Configuration](docs/configuration.md) - All configuration options (egress policy, bypasses, hooks, etc.)
+- [Customization](docs/customization.md) - Advanced customizations (Dockerfile changes, different k8s distros)
 
 ## What Gets Blocked
 

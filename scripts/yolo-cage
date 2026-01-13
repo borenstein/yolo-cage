@@ -125,8 +125,16 @@ cmd_create() {
         exit 1
     fi
 
+    # Read PROXY_BYPASS from egress-policy ConfigMap (or use default)
+    local proxy_bypass
+    proxy_bypass=$(kubectl get configmap -n "${NAMESPACE}" egress-policy -o jsonpath='{.data.PROXY_BYPASS}' 2>/dev/null || echo "api.anthropic.com")
+
     # Replace variables in template
-    local manifest=$(sed -e "s/\${BRANCH}/${branch}/g" -e "s/\${NAMESPACE}/${NAMESPACE}/g" "$template")
+    local manifest=$(sed \
+        -e "s/\${BRANCH}/${branch}/g" \
+        -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
+        -e "s/\${PROXY_BYPASS}/${proxy_bypass}/g" \
+        "$template")
 
     # Apply the pod
     echo "$manifest" | kubectl apply -n "${NAMESPACE}" -f -
