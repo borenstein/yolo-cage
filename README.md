@@ -187,4 +187,4 @@ MIT. See [LICENSE](LICENSE) for full text.
 
 ## Credits
 
-Designed by David Bruce Borenstein; planned and implemented by Claude. The agent planned and implemented its own containment infrastructure, which is either very aligned or very meta, depending on your perspective.
+Designed by David Bruce Borenstein; planned and implemented by Claude. The agent built its own containment infrastructure, which is either very aligned or very meta, depending on your perspective.
