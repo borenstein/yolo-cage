@@ -1,15 +1,17 @@
 """
 Policy enforcement for the egress proxy.
 
-Contains domain blocklists and GitHub API restrictions.
+Loads blocklists from environment variables (ConfigMap).
 This is defense-in-depth; primary protection is the git dispatcher.
 """
 
+import json
+import os
 import re
 from typing import Optional
 
-# Blocklist for known exfiltration sites
-BLOCKED_DOMAINS = frozenset({
+# Default blocked domains (used if BLOCKED_DOMAINS env not set)
+_DEFAULT_BLOCKED_DOMAINS = [
     "pastebin.com",
     "paste.ee",
     "hastebin.com",
@@ -20,29 +22,52 @@ BLOCKED_DOMAINS = frozenset({
     "ix.io",
     "sprunge.us",
     "termbin.com",
-})
+]
 
-# GitHub API policy - dangerous endpoints that agents cannot access
-GITHUB_API_BLOCKED_PATTERNS = [
-    # Cannot merge PRs (agent proposes, human disposes)
+# Default GitHub API blocked patterns (used if GITHUB_API_BLOCKED env not set)
+_DEFAULT_GITHUB_API_BLOCKED = [
     ("PUT", r"/repos/[^/]+/[^/]+/pulls/\d+/merge"),
-    # Cannot delete anything
     ("DELETE", r"/repos/.*"),
     ("DELETE", r"/orgs/.*"),
     ("DELETE", r"/user/.*"),
-    # Cannot read GitHub Actions secrets
     ("GET", r"/repos/[^/]+/[^/]+/actions/secrets.*"),
     ("GET", r"/orgs/[^/]+/actions/secrets.*"),
-    # Cannot modify repository settings
     ("PATCH", r"/repos/[^/]+/[^/]+$"),
     ("PUT", r"/repos/[^/]+/[^/]+/collaborators.*"),
-    # Cannot create/modify webhooks
     ("POST", r"/repos/[^/]+/[^/]+/hooks"),
     ("PATCH", r"/repos/[^/]+/[^/]+/hooks/\d+"),
-    # Cannot modify branch protection
     ("PUT", r"/repos/[^/]+/[^/]+/branches/[^/]+/protection"),
     ("DELETE", r"/repos/[^/]+/[^/]+/branches/[^/]+/protection"),
 ]
+
+
+def _load_blocked_domains() -> frozenset[str]:
+    """Load blocked domains from environment or use defaults."""
+    env_value = os.environ.get("BLOCKED_DOMAINS")
+    if env_value:
+        try:
+            domains = json.loads(env_value)
+            return frozenset(domains)
+        except json.JSONDecodeError:
+            pass
+    return frozenset(_DEFAULT_BLOCKED_DOMAINS)
+
+
+def _load_github_api_blocked() -> list[tuple[str, str]]:
+    """Load GitHub API blocked patterns from environment or use defaults."""
+    env_value = os.environ.get("GITHUB_API_BLOCKED")
+    if env_value:
+        try:
+            patterns = json.loads(env_value)
+            return [(method, pattern) for method, pattern in patterns]
+        except json.JSONDecodeError:
+            pass
+    return _DEFAULT_GITHUB_API_BLOCKED
+
+
+# Load configuration at module import time
+BLOCKED_DOMAINS = _load_blocked_domains()
+GITHUB_API_BLOCKED_PATTERNS = _load_github_api_blocked()
 
 
 def check_blocked_domain(host: str) -> Optional[str]:

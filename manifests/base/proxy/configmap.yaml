@@ -1,0 +1,40 @@
+# Egress proxy policy configuration
+# Modify these lists to customize what gets blocked
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-policy
+data:
+  # Domains blocked by default (known exfiltration sites)
+  # JSON array of domain names
+  BLOCKED_DOMAINS: |
+    [
+      "pastebin.com",
+      "paste.ee",
+      "hastebin.com",
+      "dpaste.org",
+      "file.io",
+      "transfer.sh",
+      "0x0.st",
+      "ix.io",
+      "sprunge.us",
+      "termbin.com"
+    ]
+
+  # GitHub API endpoints blocked (defense-in-depth)
+  # JSON array of [method, regex_pattern] pairs
+  GITHUB_API_BLOCKED: |
+    [
+      ["PUT", "/repos/[^/]+/[^/]+/pulls/\\d+/merge"],
+      ["DELETE", "/repos/.*"],
+      ["DELETE", "/orgs/.*"],
+      ["DELETE", "/user/.*"],
+      ["GET", "/repos/[^/]+/[^/]+/actions/secrets.*"],
+      ["GET", "/orgs/[^/]+/actions/secrets.*"],
+      ["PATCH", "/repos/[^/]+/[^/]+$"],
+      ["PUT", "/repos/[^/]+/[^/]+/collaborators.*"],
+      ["POST", "/repos/[^/]+/[^/]+/hooks"],
+      ["PATCH", "/repos/[^/]+/[^/]+/hooks/\\d+"],
+      ["PUT", "/repos/[^/]+/[^/]+/branches/[^/]+/protection"],
+      ["DELETE", "/repos/[^/]+/[^/]+/branches/[^/]+/protection"]
+    ]

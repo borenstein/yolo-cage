@@ -3,13 +3,12 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: yolo-cage
-  namespace: claude-sandbox  # CHANGE to match your namespace
   labels:
     app: yolo-cage
 spec:
   replicas: 1
   strategy:
-    type: Recreate  # Don't run multiple instances
+    type: Recreate
   selector:
     matchLabels:
       app: yolo-cage
@@ -24,7 +23,6 @@ spec:
         fsGroup: 1000
 
       initContainers:
-        # Create combined CA bundle (system CAs + proxy CA)
         - name: setup-ca
           image: python:3.12-slim-bookworm
           command:
@@ -42,7 +40,7 @@ spec:
 
       containers:
         - name: yolo-cage
-          image: localhost:32000/yolo-cage:latest  # CHANGE to your registry
+          image: localhost:32000/yolo-cage:latest
           imagePullPolicy: Always
 
           env:
@@ -50,7 +48,6 @@ spec:
               value: /home/dev
             - name: TERM
               value: xterm-256color
-            # Route HTTP/HTTPS through scanning proxy
             - name: HTTP_PROXY
               value: "http://egress-proxy:8080"
             - name: HTTPS_PROXY
@@ -59,12 +56,10 @@ spec:
               value: "http://egress-proxy:8080"
             - name: https_proxy
               value: "http://egress-proxy:8080"
-            # Don't proxy internal cluster traffic
             - name: NO_PROXY
               value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8"
             - name: no_proxy
               value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8"
-            # Trust the proxy's CA cert for HTTPS interception
             - name: NODE_EXTRA_CA_CERTS
               value: "/etc/ssl/certs/mitmproxy-ca.pem"
             - name: REQUESTS_CA_BUNDLE
@@ -104,7 +99,6 @@ spec:
               subPath: ca-certificates-combined.crt
               readOnly: true
 
-          # Keep container alive
           command: ["sleep", "infinity"]
 
       volumes:

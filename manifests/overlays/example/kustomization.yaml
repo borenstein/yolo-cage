@@ -1,17 +1,37 @@
 # Example yolo-cage overlay
 # Copy this directory and customize for your project
+#
+# All configuration goes here - you should not need to edit base manifests
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Use the base manifests
 resources:
   - ../../base
 
-# Set your namespace
+# Set your namespace (creates namespace and applies to all resources)
 namespace: my-project
 
-# Generate config from your values
+# Override the namespace resource name to match
+patches:
+  - target:
+      kind: Namespace
+      name: yolo-cage
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: my-project
+
+# Configure yolo-cage for your project
 configMapGenerator:
+  # Sandbox configuration
+  - name: yolo-cage-config
+    behavior: replace
+    literals:
+      - repo-url=https://github.com/your-org/your-project.git
+      - git-name=Your Name
+      - git-email=you@example.com
+
+  # Dispatcher configuration
   - name: dispatcher-config
     behavior: replace
     literals:
@@ -22,7 +42,14 @@ configMapGenerator:
       - PRE_PUSH_HOOKS=["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]
       - COMMIT_FOOTER=Built autonomously using yolo-cage v0.2.0
 
-# Patch images if using a different registry
+  # Egress policy customization (optional)
+  # Uncomment to add/remove blocked domains or GitHub API restrictions
+  # - name: egress-policy
+  #   behavior: merge
+  #   literals:
+  #     - BLOCKED_DOMAINS=["pastebin.com", "your-other-blocked.com"]
+
+# Override images for your registry
 images:
   - name: localhost:32000/yolo-cage
     newName: your-registry.example.com/yolo-cage
@@ -34,13 +61,22 @@ images:
     newName: your-registry.example.com/egress-proxy
     newTag: v0.2.0
 
-# Example patches for resources
-patches:
-  # Adjust resource limits
-  - patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
-        value: 16Gi
-    target:
-      kind: Deployment
-      name: git-dispatcher
+# Example patches - uncomment and modify as needed
+# patches:
+#   # Set storage class for PVC
+#   - target:
+#       kind: PersistentVolumeClaim
+#       name: yolo-cage-workspaces
+#     patch: |
+#       - op: add
+#         path: /spec/storageClassName
+#         value: fast-ssd
+#
+#   # Adjust resource limits
+#   - target:
+#       kind: Deployment
+#       name: git-dispatcher
+#     patch: |
+#       - op: replace
+#         path: /spec/template/spec/containers/0/resources/limits/memory
+#         value: 16Gi

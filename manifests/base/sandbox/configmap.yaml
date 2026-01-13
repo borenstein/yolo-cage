@@ -1,16 +1,16 @@
-# Configuration for yolo-cage container
+# Configuration for yolo-cage sandbox
+# Override these values in your kustomize overlay
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: yolo-cage-config
-  namespace: claude-sandbox  # CHANGE to match your namespace
 data:
-  # Git repository to clone
-  repo-url: "git@github.com:your-org/your-project.git"  # CHANGE THIS
+  # Git repository URL (override in overlay)
+  repo-url: "https://github.com/example/project.git"
 
-  # Git identity
-  git-name: "Your Name"      # CHANGE THIS
-  git-email: "you@example.com"  # CHANGE THIS
+  # Git identity (override in overlay)
+  git-name: "yolo-cage"
+  git-email: "yolo-cage@localhost"
 
   # SSH known hosts (GitHub's public keys)
   ssh-known-hosts: |

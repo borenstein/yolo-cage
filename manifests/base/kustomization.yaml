@@ -16,6 +16,7 @@ resources:
   - proxy/egress-proxy.yaml
   - proxy/llm-guard.yaml
   - proxy/proxy-ca.yaml
+  - proxy/configmap.yaml
   # Sandbox infrastructure
   - sandbox/networkpolicy.yaml
   - sandbox/pvc.yaml

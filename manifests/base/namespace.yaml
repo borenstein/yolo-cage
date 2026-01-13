@@ -1,9 +1,9 @@
-# Create namespace for yolo-cage
-# Edit the name to match your config.yaml
+# Namespace for yolo-cage
+# Name is set by kustomize from kustomization.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: claude-sandbox  # CHANGE THIS to match your config
+  name: yolo-cage
   labels:
     app.kubernetes.io/name: yolo-cage
     purpose: ai-development
