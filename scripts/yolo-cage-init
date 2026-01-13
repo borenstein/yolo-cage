@@ -1,0 +1,64 @@
+#!/bin/bash
+# yolo-cage-init - Initialize sandbox and register with dispatcher
+#
+# This script runs when a yolo-cage pod starts. It:
+#   1. Registers this pod with the git dispatcher
+#   2. Sets up the workspace directory
+#   3. Optionally runs a user-provided init script
+
+set -e
+
+BRANCH="${YOLO_CAGE_BRANCH:-}"
+DISPATCHER="${YOLO_CAGE_DISPATCHER:-http://git-dispatcher:8080}"
+WORKSPACE="/workspaces/${BRANCH}"
+
+if [[ -z "$BRANCH" ]]; then
+    echo "Error: YOLO_CAGE_BRANCH not set"
+    exit 1
+fi
+
+echo "yolo-cage: Initializing sandbox for branch ${BRANCH}"
+
+# Register with dispatcher
+echo "yolo-cage: Registering with git dispatcher..."
+max_attempts=30
+attempt=0
+while [[ $attempt -lt $max_attempts ]]; do
+    if curl -sf -X POST "${DISPATCHER}/register?branch=${BRANCH}" >/dev/null 2>&1; then
+        echo "yolo-cage: Registered successfully"
+        break
+    fi
+    attempt=$((attempt + 1))
+    if [[ $attempt -lt $max_attempts ]]; then
+        echo "yolo-cage: Waiting for dispatcher (attempt ${attempt}/${max_attempts})..."
+        sleep 2
+    else
+        echo "yolo-cage: Warning: Could not register with dispatcher. Git operations may fail."
+    fi
+done
+
+# Create workspace directory if needed
+if [[ ! -d "$WORKSPACE" ]]; then
+    echo "yolo-cage: Creating workspace directory..."
+    mkdir -p "$WORKSPACE"
+fi
+
+cd "$WORKSPACE"
+
+# Run user init script if present
+if [[ -x "/config/init-workspace" ]]; then
+    echo "yolo-cage: Running user init script..."
+    /config/init-workspace
+fi
+
+echo "yolo-cage: Initialization complete"
+echo ""
+echo "Branch: ${BRANCH}"
+echo "Workspace: ${WORKSPACE}"
+echo ""
+echo "Start Claude Code with:"
+echo "  claude --dangerously-skip-permissions"
+echo ""
+
+# Keep container running
+exec sleep infinity

@@ -1,0 +1,120 @@
+# yolo-cage v2 pod template
+# This is NOT applied directly - the CLI uses it as a template
+# Variables replaced by CLI: ${BRANCH}, ${NAMESPACE}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: yolo-cage-${BRANCH}
+  labels:
+    app: yolo-cage
+    yolo-cage/branch: ${BRANCH}
+spec:
+  restartPolicy: Never
+
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+  initContainers:
+    # Create combined CA bundle (system CAs + proxy CA)
+    - name: setup-ca
+      image: python:3.12-slim-bookworm
+      command:
+        - /bin/sh
+        - -c
+        - |
+          cat /etc/ssl/certs/ca-certificates.crt /proxy-ca/mitmproxy-ca.pem > /ca-bundle/ca-certificates-combined.crt
+          chmod 644 /ca-bundle/ca-certificates-combined.crt
+      volumeMounts:
+        - name: proxy-ca
+          mountPath: /proxy-ca
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /ca-bundle
+
+  containers:
+    - name: yolo-cage
+      image: localhost:32000/yolo-cage:latest
+      imagePullPolicy: Always
+
+      env:
+        - name: HOME
+          value: /home/dev
+        - name: TERM
+          value: xterm-256color
+        # Branch this pod is assigned to
+        - name: YOLO_CAGE_BRANCH
+          value: "${BRANCH}"
+        - name: YOLO_CAGE_VERSION
+          value: "0.2.0"
+        # Git dispatcher endpoint
+        - name: YOLO_CAGE_DISPATCHER
+          value: "http://git-dispatcher:8080"
+        # Route HTTP/HTTPS through scanning proxy
+        - name: HTTP_PROXY
+          value: "http://egress-proxy:8080"
+        - name: HTTPS_PROXY
+          value: "http://egress-proxy:8080"
+        - name: http_proxy
+          value: "http://egress-proxy:8080"
+        - name: https_proxy
+          value: "http://egress-proxy:8080"
+        # Don't proxy internal cluster traffic or dispatcher
+        - name: NO_PROXY
+          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher"
+        - name: no_proxy
+          value: "localhost,127.0.0.1,.cluster.local,.svc,10.0.0.0/8,git-dispatcher"
+        # Trust the proxy's CA cert for HTTPS interception
+        - name: NODE_EXTRA_CA_CERTS
+          value: "/etc/ssl/certs/mitmproxy-ca.pem"
+        - name: REQUESTS_CA_BUNDLE
+          value: "/etc/ssl/certs/ca-certificates-combined.crt"
+        - name: SSL_CERT_FILE
+          value: "/etc/ssl/certs/ca-certificates-combined.crt"
+
+      resources:
+        requests:
+          cpu: "1"
+          memory: "4Gi"
+        limits:
+          cpu: "8"
+          memory: "32Gi"
+
+      volumeMounts:
+        - name: workspaces
+          mountPath: /workspaces
+        - name: claude-credentials
+          mountPath: /home/dev/.claude/credentials.json
+          subPath: claude-oauth-credentials
+          readOnly: true
+        - name: proxy-ca
+          mountPath: /etc/ssl/certs/mitmproxy-ca.pem
+          subPath: mitmproxy-ca.pem
+          readOnly: true
+        - name: ca-bundle
+          mountPath: /etc/ssl/certs/ca-certificates-combined.crt
+          subPath: ca-certificates-combined.crt
+          readOnly: true
+
+      # Uses default CMD from Dockerfile (yolo-cage-init which registers then sleeps)
+
+  volumes:
+    - name: workspaces
+      persistentVolumeClaim:
+        claimName: yolo-cage-workspaces
+
+    - name: claude-credentials
+      secret:
+        secretName: yolo-cage-credentials
+        items:
+          - key: claude-oauth-credentials
+            path: claude-oauth-credentials
+            mode: 0600
+
+    - name: proxy-ca
+      configMap:
+        name: proxy-ca
+
+    - name: ca-bundle
+      emptyDir: {}

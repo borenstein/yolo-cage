@@ -1,10 +1,24 @@
-# Network policies for egress control
-# yolo-cage can only reach: DNS, egress-proxy, and SSH (for git)
+# Network policies for yolo-cage v2
+#
+# Architecture:
+#   yolo-cage pods -> git-dispatcher (git operations)
+#                  -> egress-proxy (HTTP/HTTPS)
+#                  -> DNS
+#
+#   git-dispatcher -> GitHub (HTTPS only)
+#                  -> workspaces (filesystem, not network)
+#
+#   egress-proxy -> LLM-Guard (scanning)
+#               -> Internet (allowed traffic only)
+#
+# SSH is blocked - all git goes through the dispatcher
+
+---
+# yolo-cage pods: can reach dispatcher, proxy, and DNS only
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: yolo-cage-egress
-  namespace: claude-sandbox  # CHANGE to match your namespace
 spec:
   podSelector:
     matchLabels:
@@ -20,6 +34,15 @@ spec:
         - protocol: TCP
           port: 53
 
+    # Git dispatcher (all git operations go through here)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: git-dispatcher
+      ports:
+        - protocol: TCP
+          port: 8080
+
     # Egress proxy (all HTTP/HTTPS goes through here)
     - to:
         - podSelector:
@@ -29,18 +52,40 @@ spec:
         - protocol: TCP
           port: 8080
 
-    # SSH for git (bypasses proxy - see architecture.md for discussion)
+---
+# Git dispatcher: can reach GitHub over HTTPS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: git-dispatcher-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: git-dispatcher
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # GitHub (HTTPS) - for git operations
+    # Note: In production, you may want to restrict this to GitHub IPs
     - to: []
       ports:
         - protocol: TCP
-          port: 22
+          port: 443
+
 ---
-# Egress proxy can reach: DNS, LLM-Guard, and internet
+# Egress proxy: can reach LLM-Guard and internet
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: egress-proxy-policy
-  namespace: claude-sandbox  # CHANGE to match your namespace
 spec:
   podSelector:
     matchLabels:
@@ -65,22 +110,20 @@ spec:
         - protocol: TCP
           port: 8000
 
-    # Internet (HTTP, HTTPS, SSH)
+    # Internet (HTTP, HTTPS only - no SSH)
     - to: []
       ports:
         - protocol: TCP
           port: 80
         - protocol: TCP
           port: 443
-        - protocol: TCP
-          port: 22
+
 ---
-# LLM-Guard has no egress (it's a pure scanner)
+# LLM-Guard: DNS only (pure scanner)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: llm-guard-policy
-  namespace: claude-sandbox  # CHANGE to match your namespace
 spec:
   podSelector:
     matchLabels:
