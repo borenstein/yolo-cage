@@ -10,6 +10,7 @@ metadata:
     yolo-cage/branch: ${BRANCH}
 spec:
   restartPolicy: Never
+  terminationGracePeriodSeconds: 5
 
   securityContext:
     runAsUser: 1000
