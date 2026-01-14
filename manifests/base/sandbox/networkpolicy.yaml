@@ -2,7 +2,8 @@
 #
 # Architecture:
 #   yolo-cage pods -> git-dispatcher (git operations)
-#                  -> egress-proxy (HTTP/HTTPS)
+#                  -> egress-proxy (HTTP/HTTPS, scanned)
+#                  -> direct HTTPS (for PROXY_BYPASS hosts, unscanned)
 #                  -> DNS
 #
 #   git-dispatcher -> GitHub (HTTPS only)
@@ -14,7 +15,7 @@
 # SSH is blocked - all git goes through the dispatcher
 
 ---
-# yolo-cage pods: can reach dispatcher, proxy, and DNS only
+# yolo-cage pods: can reach dispatcher, proxy, DNS, and direct HTTPS (for bypassed hosts)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -43,7 +44,7 @@ spec:
         - protocol: TCP
           port: 8080
 
-    # Egress proxy (all HTTP/HTTPS goes through here)
+    # Egress proxy (HTTP/HTTPS that gets scanned)
     - to:
         - podSelector:
             matchLabels:
@@ -51,6 +52,16 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+
+    # Direct HTTP/HTTPS for PROXY_BYPASS hosts (api.anthropic.com, etc.)
+    # NO_PROXY env var tells apps which hosts bypass the proxy
+    # These connections are NOT scanned - only bypass trusted services
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
 
 ---
 # Git dispatcher: can reach GitHub over HTTPS
