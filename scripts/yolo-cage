@@ -68,14 +68,19 @@ usage() {
 yolo-cage - Sandboxed Claude Code agents with git isolation
 
 Usage:
-  yolo-cage [-n namespace] create <branch>   Create pod for branch
-  yolo-cage [-n namespace] list              List active pods
-  yolo-cage [-n namespace] attach <branch>   Exec into pod
-  yolo-cage [-n namespace] delete <branch>   Remove pod
-  yolo-cage [-n namespace] logs <branch>     Tail pod logs
+  yolo-cage [-n namespace] create <branch>        Create pod for branch
+  yolo-cage [-n namespace] list                   List active pods
+  yolo-cage [-n namespace] attach <branch>        Attach to pod (tmux session)
+  yolo-cage [-n namespace] delete <branch>        Remove pod (preserve workspace)
+  yolo-cage [-n namespace] delete <branch> --clean  Remove pod AND workspace
+  yolo-cage [-n namespace] logs <branch>          Tail pod logs
 
 Options:
   -n, --namespace NAME    Kubernetes namespace (default: ${DEFAULT_NAMESPACE})
+
+Session Management:
+  attach starts a tmux session inside the pod. Detach with Ctrl+B,D to
+  preserve the session, then reattach later with 'attach' again.
 EOF
     exit 1
 }
@@ -218,17 +223,57 @@ cmd_attach() {
         exit 1
     fi
 
-    echo "Launching Claude in ${pod}..."
+    # Use tmux for session persistence inside the pod
+    # -A: attach if session exists, create if not
+    # On first attach: creates session with first-turn prompt
+    # On subsequent attach: reattaches to existing session (prompt ignored)
+    # Detach with Ctrl+B,D to return here without killing the session
+    echo "Attaching to Claude session in ${pod}..."
+    echo "(Detach with Ctrl+B,D to preserve session)"
+    echo ""
     kubectl exec -it -n "${NAMESPACE}" "${pod}" -- \
-        /bin/bash -c "cd /workspaces/${branch} && exec claude --dangerously-skip-permissions"
+        /bin/bash -c '
+            cd /workspaces/'"${branch}"'
+
+            # Read first-turn prompt if available (only used on new session)
+            FIRST_TURN=""
+            if [[ -f /config/agent-prompt/first-turn.txt ]]; then
+                FIRST_TURN=$(cat /config/agent-prompt/first-turn.txt)
+            fi
+
+            # tmux -A: attach if exists, create with command if not
+            if [[ -n "$FIRST_TURN" ]]; then
+                exec tmux new-session -A -s claude "claude --dangerously-skip-permissions \"$FIRST_TURN\""
+            else
+                exec tmux new-session -A -s claude "claude --dangerously-skip-permissions"
+            fi
+        '
 }
 
 cmd_delete() {
-    local branch="$1"
+    local clean=false
+    local branch=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --clean)
+                clean=true
+                shift
+                ;;
+            *)
+                branch="$1"
+                shift
+                ;;
+        esac
+    done
 
     if [[ -z "$branch" ]]; then
         echo "Error: branch name required"
-        echo "Usage: yolo-cage delete <branch>"
+        echo "Usage: yolo-cage delete <branch> [--clean]"
+        echo ""
+        echo "Options:"
+        echo "  --clean    Also delete the workspace (default: preserve)"
         exit 1
     fi
 
@@ -241,11 +286,22 @@ cmd_delete() {
 
     echo "Deleting pod ${pod}..."
     kubectl delete pod -n "${NAMESPACE}" "${pod}"
-
     echo "Pod deleted."
-    echo ""
-    echo "Note: Workspace at /workspaces/${branch} is preserved."
-    echo "Delete it manually if no longer needed."
+
+    if [[ "$clean" == "true" ]]; then
+        echo ""
+        echo "Deleting workspace /workspaces/${branch}..."
+        kubectl exec -n "${NAMESPACE}" deployment/git-dispatcher -- rm -rf "/workspaces/${branch}" 2>/dev/null || true
+        echo "Workspace deleted."
+    else
+        echo ""
+        echo "Note: Workspace at /workspaces/${branch} is preserved."
+        echo "To delete it:"
+        echo "  kubectl exec -n ${NAMESPACE} deployment/git-dispatcher -- rm -rf /workspaces/${branch}"
+        echo ""
+        echo "Or use --clean next time to delete both:"
+        echo "  yolo-cage -n ${NAMESPACE} delete ${branch} --clean"
+    fi
 }
 
 cmd_logs() {

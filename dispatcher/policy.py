@@ -98,6 +98,14 @@ def check_push_allowed(
 
     Returns an error message if not allowed, None if allowed.
     """
+    # Block branch deletion entirely - agents can push commits but not delete branches
+    # The cage boundary is the worktree contents, not the branch's existence
+    if "--delete" in args or "-d" in args:
+        return (
+            "yolo-cage: deleting remote branches is not permitted.\n"
+            "You can push commits to your branch, but cannot delete branches.\n"
+        )
+
     # Must be on assigned branch
     current = get_current_branch(cwd)
     if current != assigned_branch:

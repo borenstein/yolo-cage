@@ -9,6 +9,7 @@ This document covers all configuration options for yolo-cage. Configuration is d
 | `manifests/dispatcher/configmap.yaml` | Repository URL, git identity, pre-push hooks, commit footer |
 | `manifests/proxy/configmap.yaml` | Proxy bypass, blocked domains, GitHub API restrictions |
 | `manifests/sandbox/configmap.yaml` | Custom init scripts, SSH known hosts |
+| `manifests/sandbox/agent-prompt.yaml` | First-turn prompt, agent instructions |
 
 ---
 
@@ -61,11 +62,13 @@ Traffic to bypassed hosts is **not scanned for secrets** - this is why you shoul
 
 ```yaml
 data:
-  # Comma-separated list of hosts
-  PROXY_BYPASS: "api.anthropic.com,my-mcp-server.internal,vault.internal"
+  # Comma-separated list of hosts or domain suffixes
+  PROXY_BYPASS: ".anthropic.com,.claude.com,my-mcp-server.internal"
 ```
 
-Default: `api.anthropic.com`
+Use a leading dot (`.anthropic.com`) to match all subdomains. This is useful for services with multiple subdomains like Anthropic (api.anthropic.com, statsig.anthropic.com, etc.).
+
+Default: `.anthropic.com,.claude.com`
 
 ### Blocked Domains
 
@@ -184,6 +187,24 @@ The script:
 - Fails the pod startup if it exits non-zero
 
 Use this for project-specific setup that goes beyond what's in the base yolo-cage image.
+
+---
+
+## First-Turn Prompt
+
+When you attach to a sandbox for the first time, Claude receives an initial prompt that orients it to the environment. Customize this for your project's workflow by editing [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml).
+
+The prompt is only sent on the first attach to a new session. Subsequent attaches resume the existing conversation.
+
+### Session Management
+
+Sessions run inside tmux for persistence:
+
+- **Detach**: Press `Ctrl+B, D` to detach without ending the session
+- **Reattach**: Run `yolo-cage attach <branch>` to resume where you left off
+- **Session state**: Conversation history, tool approvals, and working state are all preserved
+
+This lets you disconnect (SSH timeout, switch tasks) and return later without losing context.
 
 ---
 
@@ -315,56 +336,10 @@ find manifests -name "*.yaml" -exec sed -i 's/namespace: yolo-cage/namespace: my
 
 ---
 
-## Complete Configuration Example
+## Configuration Files Reference
 
-Here's what a fully configured deployment looks like:
+For complete examples, see the actual manifest files:
 
-**manifests/dispatcher/configmap.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dispatcher-config
-  namespace: yolo-cage
-data:
-  WORKSPACE_ROOT: "/workspaces"
-  GIT_USER_NAME: "David Borenstein"
-  GIT_USER_EMAIL: "david@example.com"
-  YOLO_CAGE_VERSION: "0.2.0"
-  PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
-  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
-```
-
-**manifests/proxy/configmap.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: egress-policy
-  namespace: yolo-cage
-data:
-  PROXY_BYPASS: "api.anthropic.com,vault.internal"
-  BLOCKED_DOMAINS: |
-    [
-      "pastebin.com",
-      "paste.ee",
-      "hastebin.com",
-      "dpaste.org",
-      "file.io",
-      "transfer.sh",
-      "0x0.st"
-    ]
-```
-
-**manifests/sandbox/configmap.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: yolo-cage-config
-  namespace: yolo-cage
-data:
-  repo-url: "https://github.com/your-org/your-project.git"
-  git-name: "David Borenstein"
-  git-email: "david@example.com"
-```
+- [`manifests/dispatcher/configmap.yaml`](../manifests/dispatcher/configmap.yaml) - Repository URL, git identity, hooks
+- [`manifests/proxy/configmap.yaml`](../manifests/proxy/configmap.yaml) - Proxy bypass, blocked domains
+- [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml) - First-turn prompt

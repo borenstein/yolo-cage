@@ -35,21 +35,29 @@ spec:
           mountPath: /ca-bundle
 
     # Set up .claude directory with correct permissions
-    # (secret subPath mounts create parent dirs as root, breaking writes)
+    # Uses persistent storage so auth tokens survive pod restarts
     - name: setup-claude-home
       image: python:3.12-slim-bookworm
       command:
         - /bin/sh
         - -c
         - |
-          cp /secrets/claude-oauth-credentials /claude-home/credentials.json
-          chmod 600 /claude-home/credentials.json
+          # Create branch-specific .claude directory under .claude-homes/
+          mkdir -p /pvc/.claude-homes/${BRANCH}
+          # Copy credentials if not already present (preserve existing auth state)
+          if [ ! -f /pvc/.claude-homes/${BRANCH}/credentials.json ]; then
+            cp /secrets/claude-oauth-credentials /pvc/.claude-homes/${BRANCH}/credentials.json
+            chmod 600 /pvc/.claude-homes/${BRANCH}/credentials.json
+          fi
+      env:
+        - name: BRANCH
+          value: "${BRANCH}"
       volumeMounts:
         - name: claude-credentials
           mountPath: /secrets
           readOnly: true
-        - name: claude-home
-          mountPath: /claude-home
+        - name: claude-homes
+          mountPath: /pvc
 
   containers:
     - name: yolo-cage
@@ -102,8 +110,9 @@ spec:
       volumeMounts:
         - name: workspaces
           mountPath: /workspaces
-        - name: claude-home
+        - name: claude-homes
           mountPath: /home/dev/.claude
+          subPath: .claude-homes/${BRANCH}
         - name: proxy-ca
           mountPath: /etc/ssl/certs/mitmproxy-ca.pem
           subPath: mitmproxy-ca.pem
@@ -111,6 +120,9 @@ spec:
         - name: ca-bundle
           mountPath: /etc/ssl/certs/ca-certificates-combined.crt
           subPath: ca-certificates-combined.crt
+          readOnly: true
+        - name: agent-prompt
+          mountPath: /config/agent-prompt
           readOnly: true
 
       # Uses default CMD from Dockerfile (yolo-cage-init which registers then sleeps)
@@ -128,8 +140,12 @@ spec:
             path: claude-oauth-credentials
             mode: 0600
 
-    - name: claude-home
-      emptyDir: {}
+    # Claude home directories persist on workspaces PVC
+    # Each branch gets its own subdirectory: /.claude-homes/${BRANCH}/
+    - name: claude-homes
+      persistentVolumeClaim:
+        claimName: yolo-cage-workspaces
+      # Note: subPath handled at volumeMounts level
 
     - name: proxy-ca
       configMap:
@@ -137,3 +153,8 @@ spec:
 
     - name: ca-bundle
       emptyDir: {}
+
+    - name: agent-prompt
+      configMap:
+        name: yolo-cage-agent-prompt
+        optional: true

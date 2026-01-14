@@ -135,8 +135,10 @@ If you use MCP servers or other authenticated services, add them to `manifests/p
 
 ```yaml
 data:
-  PROXY_BYPASS: "api.anthropic.com,my-mcp-server.internal"
+  PROXY_BYPASS: ".anthropic.com,.claude.com,my-mcp-server.internal"
 ```
+
+The default (`.anthropic.com,.claude.com`) covers all Anthropic API endpoints. Use leading dots to match subdomains.
 
 See [Configuration Reference](configuration.md) for all options.
 
@@ -215,12 +217,15 @@ Simply run the CLI from your cloned directory:
 # Create a sandbox for a feature branch
 yolo-cage create feature-auth
 
-# Attach to the sandbox
+# Attach to the sandbox (launches Claude automatically)
 yolo-cage attach feature-auth
-
-# Inside the sandbox, start Claude Code
-claude --dangerously-skip-permissions
 ```
+
+On first attach, Claude receives a first-turn prompt and begins orienting to the project. The session runs inside tmux:
+
+- **Detach**: Press `Ctrl+B, D` to detach without ending the session
+- **Reattach**: Run `yolo-cage attach feature-auth` to resume
+- **Customize**: Edit `manifests/sandbox/agent-prompt.yaml` to change the first-turn prompt
 
 ## Verification
 
