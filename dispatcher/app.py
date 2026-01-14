@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from . import registry
+from .bootstrap import bootstrap_workspace, BootstrapError
 from .commands import CommandCategory, classify, get_subcommand
 from .gh import execute as gh_execute
 from .gh_commands import GhCommandCategory, classify_gh
@@ -67,6 +68,27 @@ async def deregister_pod(request: Request):
 async def list_registry():
     """List all registered pods."""
     return {"registry": registry.list_all()}
+
+
+@app.post("/bootstrap")
+async def bootstrap(branch: str):
+    """
+    Bootstrap a workspace for a branch.
+
+    This is called during pod init to set up the workspace before the agent
+    starts. It clones the repository and checks out the requested branch.
+
+    This endpoint runs with dispatcher privileges (has PAT, can clone).
+    The agent never needs clone/init access.
+    """
+    logger.info(f"Bootstrap requested for branch: {branch}")
+    try:
+        result = bootstrap_workspace(branch)
+        logger.info(f"Bootstrap complete: {result}")
+        return result
+    except BootstrapError as e:
+        logger.error(f"Bootstrap failed: {e}")
+        raise HTTPException(500, str(e))
 
 
 @app.post("/git", response_class=PlainTextResponse)

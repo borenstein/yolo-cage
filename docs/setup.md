@@ -110,23 +110,23 @@ rm ca-key.pem ca-cert.pem
 
 Edit the manifest files to set your configuration:
 
-### Git Identity (Required)
+### Repository URL (Required)
 
 Edit `manifests/dispatcher/configmap.yaml`:
 
 ```yaml
 data:
-  GIT_USER_NAME: "Your Name"
-  GIT_USER_EMAIL: "you@example.com"
+  REPO_URL: "https://github.com/your-org/your-project.git"
 ```
 
-### Repository URL (Required)
+### Git Identity (Required)
 
-Edit `manifests/sandbox/configmap.yaml`:
+Also in `manifests/dispatcher/configmap.yaml`:
 
 ```yaml
 data:
-  repo-url: "https://github.com/your-org/your-project.git"
+  GIT_USER_NAME: "Your Name"
+  GIT_USER_EMAIL: "you@example.com"
 ```
 
 ### Proxy Bypass (Optional)

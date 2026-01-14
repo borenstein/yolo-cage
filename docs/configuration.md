@@ -6,9 +6,24 @@ This document covers all configuration options for yolo-cage. Configuration is d
 
 | File | Purpose |
 |------|---------|
-| `manifests/dispatcher/configmap.yaml` | Git identity, pre-push hooks, commit footer |
+| `manifests/dispatcher/configmap.yaml` | Repository URL, git identity, pre-push hooks, commit footer |
 | `manifests/proxy/configmap.yaml` | Proxy bypass, blocked domains, GitHub API restrictions |
-| `manifests/sandbox/configmap.yaml` | Repository URL, git identity for sandbox |
+| `manifests/sandbox/configmap.yaml` | Custom init scripts, SSH known hosts |
+
+---
+
+## Repository URL
+
+The repository URL to clone. **Required** - you must set this before deploying.
+
+Edit `manifests/dispatcher/configmap.yaml`:
+
+```yaml
+data:
+  REPO_URL: "https://github.com/your-org/your-project.git"
+```
+
+The dispatcher clones this repository when bootstrapping each workspace. Agents do not have clone access - they work with the pre-cloned workspace.
 
 ---
 
@@ -141,6 +156,34 @@ Set to empty string to disable:
 ```yaml
 COMMIT_FOOTER: ""
 ```
+
+---
+
+## Custom Init Script
+
+You can run a custom initialization script when each sandbox pod starts. This runs after the repository is cloned but before the agent begins working.
+
+Edit `manifests/sandbox/configmap.yaml` to add an `init-workspace` key:
+
+```yaml
+data:
+  init-workspace: |
+    #!/bin/bash
+    # Install project dependencies
+    pip install -r requirements.txt
+    npm install
+
+    # Set up any project-specific configuration
+    cp .env.example .env
+```
+
+The script:
+- Runs with the same user as the agent (non-root)
+- Has access to the cloned workspace at `/workspaces/{branch}`
+- Can install packages, configure tools, etc.
+- Fails the pod startup if it exits non-zero
+
+Use this for project-specific setup that goes beyond what's in the base yolo-cage image.
 
 ---
 

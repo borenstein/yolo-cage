@@ -9,6 +9,10 @@ data:
   # Workspace root where agent repos are mounted
   WORKSPACE_ROOT: "/workspaces"
 
+  # Repository URL (REQUIRED - set this before deploying)
+  # The dispatcher will clone this repo when bootstrapping workspaces
+  REPO_URL: "https://github.com/your-org/your-project.git"
+
   # Git user identity (commits will use this)
   GIT_USER_NAME: "yolo-cage"
   GIT_USER_EMAIL: "yolo-cage@localhost"

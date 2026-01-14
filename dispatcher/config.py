@@ -5,6 +5,7 @@ import os
 
 
 WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", "/workspaces")
+REPO_URL = os.environ.get("REPO_URL", "")
 GIT_USER_NAME = os.environ.get("GIT_USER_NAME", "yolo-cage")
 GIT_USER_EMAIL = os.environ.get("GIT_USER_EMAIL", "yolo-cage@localhost")
 GITHUB_PAT = os.environ.get("GITHUB_PAT", "")

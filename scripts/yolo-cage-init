@@ -2,9 +2,10 @@
 # yolo-cage-init - Initialize sandbox and register with dispatcher
 #
 # This script runs when a yolo-cage pod starts. It:
-#   1. Registers this pod with the git dispatcher
-#   2. Sets up the workspace directory
-#   3. Optionally runs a user-provided init script
+#   1. Calls the dispatcher to bootstrap the workspace (clone repo, setup branch)
+#   2. Registers this pod with the git dispatcher
+#   3. Creates CLAUDE.md with sandbox instructions
+#   4. Optionally runs a user-provided init script
 
 set -e
 
@@ -19,34 +20,50 @@ fi
 
 echo "yolo-cage: Initializing sandbox for branch ${BRANCH}"
 
-# Register with dispatcher
-echo "yolo-cage: Registering with git dispatcher..."
+# Wait for dispatcher to be ready
+echo "yolo-cage: Waiting for dispatcher..."
 max_attempts=30
 attempt=0
 while [[ $attempt -lt $max_attempts ]]; do
-    if curl -sf -X POST "${DISPATCHER}/register?branch=${BRANCH}" >/dev/null 2>&1; then
-        echo "yolo-cage: Registered successfully"
+    if curl -sf "${DISPATCHER}/health" >/dev/null 2>&1; then
+        echo "yolo-cage: Dispatcher is ready"
         break
     fi
     attempt=$((attempt + 1))
     if [[ $attempt -lt $max_attempts ]]; then
-        echo "yolo-cage: Waiting for dispatcher (attempt ${attempt}/${max_attempts})..."
         sleep 2
     else
-        echo "yolo-cage: Warning: Could not register with dispatcher. Git operations may fail."
+        echo "yolo-cage: Error: Dispatcher not available after ${max_attempts} attempts"
+        exit 1
     fi
 done
 
-# Create workspace directory if needed
-if [[ ! -d "$WORKSPACE" ]]; then
-    echo "yolo-cage: Creating workspace directory..."
-    mkdir -p "$WORKSPACE"
+# Bootstrap workspace (dispatcher clones repo with its credentials)
+echo "yolo-cage: Bootstrapping workspace..."
+bootstrap_response=$(curl -sf -X POST "${DISPATCHER}/bootstrap?branch=${BRANCH}" 2>&1) || {
+    echo "yolo-cage: Error: Bootstrap failed"
+    echo "$bootstrap_response"
+    exit 1
+}
+echo "yolo-cage: Bootstrap complete"
+echo "$bootstrap_response" | grep -q '"status":"success"' || {
+    echo "yolo-cage: Warning: Unexpected bootstrap response"
+    echo "$bootstrap_response"
+}
+
+# Register with dispatcher (maps our IP to this branch)
+echo "yolo-cage: Registering with git dispatcher..."
+if curl -sf -X POST "${DISPATCHER}/register?branch=${BRANCH}" >/dev/null 2>&1; then
+    echo "yolo-cage: Registered successfully"
+else
+    echo "yolo-cage: Warning: Could not register with dispatcher. Git operations may fail."
 fi
 
 cd "$WORKSPACE"
 
 # Create yolo-cage CLAUDE.md if no CLAUDE.md exists
 # This informs Claude about the sandbox constraints
+# (The repo may have its own CLAUDE.md, so we don't overwrite)
 if [[ ! -f "$WORKSPACE/CLAUDE.md" ]]; then
     echo "yolo-cage: Creating sandbox CLAUDE.md..."
     cat > "$WORKSPACE/CLAUDE.md" <<'CLAUDE_EOF'
