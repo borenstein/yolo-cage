@@ -336,45 +336,10 @@ find manifests -name "*.yaml" -exec sed -i 's/namespace: yolo-cage/namespace: my
 
 ---
 
-## Complete Configuration Example
+## Configuration Files Reference
 
-Here's what a fully configured deployment looks like:
+For complete examples, see the actual manifest files:
 
-**manifests/dispatcher/configmap.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dispatcher-config
-  namespace: yolo-cage
-data:
-  WORKSPACE_ROOT: "/workspaces"
-  GIT_USER_NAME: "David Borenstein"
-  GIT_USER_EMAIL: "david@example.com"
-  YOLO_CAGE_VERSION: "0.2.0"
-  PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
-  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
-```
-
-**manifests/proxy/configmap.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: egress-policy
-  namespace: yolo-cage
-data:
-  PROXY_BYPASS: ".anthropic.com,.claude.com,vault.internal"
-  BLOCKED_DOMAINS: |
-    [
-      "pastebin.com",
-      "paste.ee",
-      "hastebin.com",
-      "dpaste.org",
-      "file.io",
-      "transfer.sh",
-      "0x0.st"
-    ]
-```
-
-**manifests/sandbox/agent-prompt.yaml:** See [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml) for the default first-turn prompt.
+- [`manifests/dispatcher/configmap.yaml`](../manifests/dispatcher/configmap.yaml) - Repository URL, git identity, hooks
+- [`manifests/proxy/configmap.yaml`](../manifests/proxy/configmap.yaml) - Proxy bypass, blocked domains
+- [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml) - First-turn prompt
