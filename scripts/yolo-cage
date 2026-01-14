@@ -19,25 +19,25 @@ set -e
 DEFAULT_NAMESPACE="yolo-cage"
 NAMESPACE="${DEFAULT_NAMESPACE}"
 
-# Find manifests directory
+# Find manifests base directory (where sandbox/, dispatcher/, proxy/ live)
 # Priority: YOLO_CAGE_HOME > relative to script > system install location
 find_manifests_dir() {
     # 1. Environment variable (explicit override)
-    if [[ -n "${YOLO_CAGE_HOME:-}" && -d "${YOLO_CAGE_HOME}/manifests" ]]; then
-        echo "${YOLO_CAGE_HOME}/manifests"
+    if [[ -n "${YOLO_CAGE_HOME:-}" && -d "${YOLO_CAGE_HOME}/manifests/base" ]]; then
+        echo "${YOLO_CAGE_HOME}/manifests/base"
         return
     fi
 
     # 2. Relative to script (dev/cloned repo)
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -d "${script_dir}/../manifests" ]]; then
-        echo "${script_dir}/../manifests"
+    if [[ -d "${script_dir}/../manifests/base" ]]; then
+        echo "${script_dir}/../manifests/base"
         return
     fi
 
     # 3. System install location
-    if [[ -d "/usr/local/share/yolo-cage/manifests" ]]; then
-        echo "/usr/local/share/yolo-cage/manifests"
+    if [[ -d "/usr/local/share/yolo-cage/manifests/base" ]]; then
+        echo "/usr/local/share/yolo-cage/manifests/base"
         return
     fi
 
@@ -147,9 +147,9 @@ cmd_create() {
         echo "Error: Could not find yolo-cage manifests directory."
         echo ""
         echo "Searched in:"
-        echo "  - \$YOLO_CAGE_HOME/manifests (env var not set)"
-        echo "  - $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../manifests (not found)"
-        echo "  - /usr/local/share/yolo-cage/manifests (not found)"
+        echo "  - \$YOLO_CAGE_HOME/manifests/base (env var not set)"
+        echo "  - $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../manifests/base (not found)"
+        echo "  - /usr/local/share/yolo-cage/manifests/base (not found)"
         echo ""
         echo "Either:"
         echo "  - Run from the cloned yolo-cage repo, or"
