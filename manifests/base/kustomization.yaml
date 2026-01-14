@@ -15,8 +15,9 @@ resources:
   # Proxy
   - proxy/egress-proxy.yaml
   - proxy/llm-guard.yaml
-  - proxy/proxy-ca.yaml
   - proxy/configmap.yaml
+  # Note: proxy-ca.yaml is NOT included - it must be created manually
+  # before deploying (see docs/setup.md Step 4)
   # Sandbox infrastructure
   - sandbox/networkpolicy.yaml
   - sandbox/pvc.yaml

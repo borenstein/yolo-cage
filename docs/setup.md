@@ -89,7 +89,11 @@ rm claude-credentials.json
 
 ## Step 4: Generate Proxy CA Certificate
 
-The egress proxy needs a CA certificate for HTTPS interception:
+The egress proxy needs a CA certificate for HTTPS interception.
+
+> **Important**: This ConfigMap is intentionally excluded from kustomize because
+> it's environment-specific. You must create it manually before Step 6, and
+> re-running `kubectl apply -k` will not overwrite it.
 
 ```bash
 # Generate CA key and certificate

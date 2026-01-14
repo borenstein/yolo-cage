@@ -1,20 +1,15 @@
 # Proxy CA certificate for HTTPS interception
 #
-# IMPORTANT: This is a placeholder. After deploying the egress-proxy,
-# you need to extract the actual CA certificate and update this ConfigMap.
+# NOTE: This file is NOT applied by kustomize. It exists as a reference only.
+# You must create the proxy-ca ConfigMap manually before deploying.
+# See docs/setup.md Step 4 for instructions.
 #
-# Steps:
-# 1. Deploy egress-proxy first (it will generate a CA on startup)
-# 2. Extract the CA:
-#    kubectl exec -n <namespace> deployment/egress-proxy -- \
-#      cat /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem > mitmproxy-ca.pem
-# 3. Update this ConfigMap:
-#    kubectl create configmap proxy-ca \
-#      --namespace=<namespace> \
-#      --from-file=mitmproxy-ca.pem=mitmproxy-ca.pem \
-#      --dry-run=client -o yaml | kubectl apply -f -
-# 4. Restart yolo-cage to pick up the new CA:
-#    kubectl rollout restart -n <namespace> deployment/yolo-cage
+# Alternative: Extract the CA from a running egress-proxy:
+#   kubectl exec -n <namespace> deployment/egress-proxy -- \
+#     cat /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem > mitmproxy-ca.pem
+#   kubectl create configmap proxy-ca \
+#     --namespace=<namespace> \
+#     --from-file=mitmproxy-ca.pem=mitmproxy-ca.pem
 #
 apiVersion: v1
 kind: ConfigMap
