@@ -159,9 +159,36 @@ llm-guard-xxx                     1/1     Running   0          1m
 
 ## Step 7: Install the CLI
 
+The CLI needs access to manifest templates. Choose one option:
+
+### Option A: System Install (Recommended)
+
 ```bash
+# Install CLI
 sudo cp scripts/yolo-cage /usr/local/bin/
 sudo chmod +x /usr/local/bin/yolo-cage
+
+# Install manifests
+sudo mkdir -p /usr/local/share/yolo-cage
+sudo cp -r manifests /usr/local/share/yolo-cage/
+```
+
+### Option B: Environment Variable
+
+If you prefer to keep everything in your cloned repo:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export YOLO_CAGE_HOME="$HOME/yolo-cage"
+export PATH="$YOLO_CAGE_HOME/scripts:$PATH"
+```
+
+### Option C: Run from Repo
+
+Simply run the CLI from your cloned directory:
+
+```bash
+~/yolo-cage/scripts/yolo-cage create feature-auth
 ```
 
 ## Step 8: Create Your First Sandbox

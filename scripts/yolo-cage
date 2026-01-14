@@ -19,9 +19,33 @@ set -e
 DEFAULT_NAMESPACE="yolo-cage"
 NAMESPACE="${DEFAULT_NAMESPACE}"
 
-# Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFESTS_DIR="${SCRIPT_DIR}/../manifests"
+# Find manifests directory
+# Priority: YOLO_CAGE_HOME > relative to script > system install location
+find_manifests_dir() {
+    # 1. Environment variable (explicit override)
+    if [[ -n "${YOLO_CAGE_HOME:-}" && -d "${YOLO_CAGE_HOME}/manifests" ]]; then
+        echo "${YOLO_CAGE_HOME}/manifests"
+        return
+    fi
+
+    # 2. Relative to script (dev/cloned repo)
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -d "${script_dir}/../manifests" ]]; then
+        echo "${script_dir}/../manifests"
+        return
+    fi
+
+    # 3. System install location
+    if [[ -d "/usr/local/share/yolo-cage/manifests" ]]; then
+        echo "/usr/local/share/yolo-cage/manifests"
+        return
+    fi
+
+    # Not found
+    echo ""
+}
+
+MANIFESTS_DIR="$(find_manifests_dir)"
 
 # Parse global options
 while [[ $# -gt 0 ]]; do
@@ -119,6 +143,21 @@ cmd_create() {
     echo "Pod name: ${pod}"
 
     # Generate pod manifest from template
+    if [[ -z "$MANIFESTS_DIR" ]]; then
+        echo "Error: Could not find yolo-cage manifests directory."
+        echo ""
+        echo "Searched in:"
+        echo "  - \$YOLO_CAGE_HOME/manifests (env var not set)"
+        echo "  - $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../manifests (not found)"
+        echo "  - /usr/local/share/yolo-cage/manifests (not found)"
+        echo ""
+        echo "Either:"
+        echo "  - Run from the cloned yolo-cage repo, or"
+        echo "  - Set YOLO_CAGE_HOME to your yolo-cage directory, or"
+        echo "  - Install manifests: sudo cp -r manifests /usr/local/share/yolo-cage/"
+        exit 1
+    fi
+
     local template="${MANIFESTS_DIR}/sandbox/pod-template.yaml"
     if [[ ! -f "$template" ]]; then
         echo "Error: Pod template not found at ${template}"
