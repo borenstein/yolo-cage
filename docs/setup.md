@@ -132,6 +132,8 @@ kubectl apply -k manifests/base
 
 ### Option B: Kustomize Overlay (Recommended for Customization)
 
+Create your overlay within the cloned repository:
+
 ```bash
 # Copy the example overlay
 cp -r manifests/overlays/example manifests/overlays/my-project
@@ -142,6 +144,15 @@ $EDITOR manifests/overlays/my-project/kustomization.yaml
 # Apply
 kubectl apply -k manifests/overlays/my-project
 ```
+
+Your overlay's `kustomization.yaml` should reference the base via relative path:
+
+```yaml
+resources:
+  - ../../base
+```
+
+> **Note**: Kustomize remote bases (e.g., `https://github.com/.../base?ref=main`) do not work reliably across all Kubernetes distributions due to git integration issues. Always use a local clone with relative paths. See [issue #6](https://github.com/borenstein/yolo-cage/issues/6) for Helm-based installation (coming soon).
 
 Wait for all pods to be ready:
 
