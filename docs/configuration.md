@@ -192,21 +192,7 @@ Use this for project-specific setup that goes beyond what's in the base yolo-cag
 
 ## First-Turn Prompt
 
-When you attach to a sandbox for the first time, Claude receives an initial prompt that orients it to the environment. Customize this for your project's workflow.
-
-Edit `manifests/sandbox/agent-prompt.yaml`:
-
-```yaml
-data:
-  first-turn.txt: |
-    You are starting a new session in a yolo-cage sandbox. Please:
-
-    1. Review this project's CLAUDE.md to understand the codebase
-    2. Check your environment with `git status`
-    3. Look at open issues and pick one to work on
-
-    When ready, start implementing and commit your changes.
-```
+When you attach to a sandbox for the first time, Claude receives an initial prompt that orients it to the environment. Customize this for your project's workflow by editing [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml).
 
 The prompt is only sent on the first attach to a new session. Subsequent attaches resume the existing conversation.
 
@@ -391,14 +377,4 @@ data:
     ]
 ```
 
-**manifests/sandbox/agent-prompt.yaml:**
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: yolo-cage-agent-prompt
-  namespace: yolo-cage
-data:
-  first-turn.txt: |
-    Review the project CLAUDE.md, check `git status`, and indicate you're ready to work.
-```
+**manifests/sandbox/agent-prompt.yaml:** See [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml) for the default first-turn prompt.
