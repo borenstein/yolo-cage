@@ -1,6 +1,6 @@
 # Customization Guide
 
-This guide covers advanced customizations that go beyond the standard [Configuration Reference](configuration.md). For most deployments, you only need to edit your kustomize overlay - see [Configuration Reference](configuration.md) first.
+This guide covers advanced customizations beyond the standard [Configuration Reference](configuration.md). For most deployments, you only need to edit the manifest files directly.
 
 > **Note**: When customizing, maintain the security properties: non-root user, NetworkPolicy egress restrictions, and proxy-based scanning. Disabling these removes exfiltration controls.
 
@@ -32,39 +32,38 @@ docker push <registry>/yolo-cage:latest
 
 ### LLM-Guard Regex Patterns
 
-The LLM-Guard ConfigMap contains regex patterns for secret detection. To add patterns, patch the ConfigMap in your overlay:
+Edit `manifests/proxy/llm-guard-config.yaml` to add custom secret patterns:
 
 ```yaml
-patches:
-  - target:
-      kind: ConfigMap
-      name: llm-guard-config
-    patch: |
-      - op: add
-        path: /data/scanners.yml
-        value: |
-          input_scanners:
-            - type: Secrets
-              params:
-                redact_mode: "all"
-            - type: Regex
-              params:
-                patterns:
-                  # Default patterns
-                  - "-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"
-                  - "AKIA[0-9A-Z]{16}"
-                  - "sk-ant-[a-zA-Z0-9-_]+"
-                  - "ghp_[a-zA-Z0-9]{36}"
-                  - "github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}"
-                  # Your custom patterns
-                  - "PRIVATE_KEY_[A-Za-z0-9]{32}"
-                  - "mycompany_api_[a-f0-9]{40}"
-                match_type: "search"
-                redact: true
-          output_scanners: []
-          settings:
-            lazy_load: false
-            low_cpu_mem_usage: true
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-guard-config
+  namespace: yolo-cage
+data:
+  scanners.yml: |
+    input_scanners:
+      - type: Secrets
+        params:
+          redact_mode: "all"
+      - type: Regex
+        params:
+          patterns:
+            # Default patterns
+            - "-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"
+            - "AKIA[0-9A-Z]{16}"
+            - "sk-ant-[a-zA-Z0-9-_]+"
+            - "ghp_[a-zA-Z0-9]{36}"
+            - "github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}"
+            # Add your custom patterns here
+            - "PRIVATE_KEY_[A-Za-z0-9]{32}"
+            - "mycompany_api_[a-f0-9]{40}"
+          match_type: "search"
+          redact: true
+    output_scanners: []
+    settings:
+      lazy_load: false
+      low_cpu_mem_usage: true
 ```
 
 ## Different Kubernetes Distributions
@@ -75,20 +74,26 @@ Default configuration. Uses `localhost:32000` registry.
 
 ### k3s
 
-Use your configured registry or Docker Hub. Update images in your overlay:
+Use your configured registry or Docker Hub. Edit the `image:` fields in:
+- `manifests/dispatcher/deployment.yaml`
+- `manifests/proxy/egress-proxy.yaml`
+- `manifests/proxy/llm-guard.yaml`
+- `manifests/sandbox/pod-template.yaml`
+
+Example:
 ```yaml
-images:
-  - name: localhost:32000/yolo-cage
-    newName: docker.io/yourusername/yolo-cage
+spec:
+  containers:
+    - name: yolo-cage
+      image: docker.io/yourusername/yolo-cage:latest
 ```
 
 ### EKS/GKE/AKS
 
-Use ECR/GCR/ACR respectively:
+Use ECR/GCR/ACR respectively. Update image references as above:
+
 ```yaml
-images:
-  - name: localhost:32000/yolo-cage
-    newName: 123456789.dkr.ecr.us-west-2.amazonaws.com/yolo-cage
+image: 123456789.dkr.ecr.us-west-2.amazonaws.com/yolo-cage:latest
 ```
 
 Ensure your nodes can pull from the registry (IAM roles, service accounts, etc.).
@@ -101,32 +106,32 @@ docker build -t yolo-cage:latest -f dockerfiles/sandbox/Dockerfile .
 kind load docker-image yolo-cage:latest
 ```
 
-Update overlay to use local images:
+Update deployments to use local images with `imagePullPolicy: Never`:
 ```yaml
-images:
-  - name: localhost:32000/yolo-cage
-    newName: yolo-cage
-    newTag: latest
-patches:
-  - target:
-      kind: Deployment
-      name: yolo-cage
-    patch: |
-      - op: replace
-        path: /spec/template/spec/containers/0/imagePullPolicy
-        value: Never
+spec:
+  containers:
+    - name: yolo-cage
+      image: yolo-cage:latest
+      imagePullPolicy: Never
 ```
 
 ## Multiple Projects
 
-Deploy to different namespaces for multiple projects:
+For multiple projects, clone the repository once per project:
 
 ```bash
 # Project A
-kubectl apply -k manifests/overlays/project-a
+git clone https://github.com/borenstein/yolo-cage.git yolo-cage-project-a
+cd yolo-cage-project-a
+# Edit manifests/namespace.yaml to use namespace: project-a
+# Edit other manifests to use project-a namespace
+# Configure for project A's repo, deploy
 
 # Project B
-kubectl apply -k manifests/overlays/project-b
+git clone https://github.com/borenstein/yolo-cage.git yolo-cage-project-b
+cd yolo-cage-project-b
+# Edit manifests/namespace.yaml to use namespace: project-b
+# Configure for project B's repo, deploy
 ```
 
 Each namespace is isolated with its own:
@@ -135,6 +140,8 @@ Each namespace is isolated with its own:
 - LLM-Guard instance
 - Workspace PVC
 - Git dispatcher
+
+See [Using a Different Namespace](configuration.md#using-a-different-namespace) for the namespace change procedure.
 
 ## Restricting GitHub CLI Access
 
@@ -163,18 +170,16 @@ With an issues-only token, commands like `gh pr merge` or `gh repo delete` will 
 
 ### Persistent Logging
 
-Add a sidecar to ship logs:
+To ship logs to an external system, add a sidecar container to `manifests/proxy/egress-proxy.yaml`:
 
 ```yaml
-patches:
-  - target:
-      kind: Deployment
-      name: egress-proxy
-    patch: |
-      - op: add
-        path: /spec/template/spec/containers/-
-        value:
-          name: log-shipper
+spec:
+  template:
+    spec:
+      containers:
+        - name: egress-proxy
+          # ... existing container ...
+        - name: log-shipper
           image: fluent/fluent-bit:latest
           volumeMounts:
             - name: proxy-logs
@@ -183,13 +188,14 @@ patches:
 
 ### Prometheus Metrics
 
-LLM-Guard exposes Prometheus metrics. Add a ServiceMonitor if using Prometheus Operator:
+LLM-Guard exposes Prometheus metrics. If using Prometheus Operator, create a ServiceMonitor:
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: llm-guard
+  namespace: yolo-cage
 spec:
   selector:
     matchLabels:
@@ -203,8 +209,8 @@ spec:
 
 ### Run without secret scanning (not recommended)
 
-Remove proxy environment variables from your overlay and update NetworkPolicy to allow direct internet access. This removes exfiltration protection.
+To disable secret scanning, remove the proxy environment variables from `manifests/sandbox/pod-template.yaml` and update `manifests/sandbox/networkpolicy.yaml` to allow direct internet access. This removes exfiltration protection.
 
 ### Run without LLM-Guard
 
-Modify `dockerfiles/proxy/addon.py` to skip the LLM-Guard call and rely only on domain blocklist. Less thorough but no external dependency.
+To rely only on the domain blocklist without LLM-Guard, modify `dockerfiles/proxy/addon.py` to skip the LLM-Guard call. Less thorough but removes the external dependency.

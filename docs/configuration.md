@@ -1,54 +1,34 @@
 # Configuration Reference
 
-This document covers all configuration options for yolo-cage. All configuration is done through Kubernetes manifests - you should never need to edit Python code or Dockerfiles.
+This document covers all configuration options for yolo-cage. Configuration is done by editing YAML files directly in the `manifests/` directory.
 
-## Quick Start
+## Configuration Files
 
-1. Copy the example overlay: `cp -r manifests/overlays/example manifests/overlays/myproject`
-2. Edit `manifests/overlays/myproject/kustomization.yaml`
-3. Apply: `kubectl apply -k manifests/overlays/myproject`
-
-All configuration goes in your overlay's `kustomization.yaml`. The sections below explain each option.
-
----
-
-## Namespace
-
-```yaml
-# Your project's namespace
-namespace: my-project
-
-# Also update the Namespace resource name to match
-patches:
-  - target:
-      kind: Namespace
-      name: yolo-cage
-    patch: |
-      - op: replace
-        path: /metadata/name
-        value: my-project
-```
+| File | Purpose |
+|------|---------|
+| `manifests/dispatcher/configmap.yaml` | Git identity, pre-push hooks, commit footer |
+| `manifests/proxy/configmap.yaml` | Proxy bypass, blocked domains, GitHub API restrictions |
+| `manifests/sandbox/configmap.yaml` | Repository URL, git identity for sandbox |
 
 ---
 
 ## Git Identity
 
-The identity used for commits made by agents. **Required** - you must set this.
+The identity used for commits made by agents. **Required** - you must set this before deploying.
+
+Edit `manifests/dispatcher/configmap.yaml`:
 
 ```yaml
-configMapGenerator:
-  - name: dispatcher-config
-    behavior: replace
-    literals:
-      - GIT_USER_NAME=Your Name
-      - GIT_USER_EMAIL=you@example.com
+data:
+  GIT_USER_NAME: "Your Name"
+  GIT_USER_EMAIL: "you@example.com"
 ```
 
 ---
 
 ## Egress Policy
 
-Controls what network traffic agents can make. All settings are in the `egress-policy` ConfigMap.
+Controls what network traffic agents can make. Edit `manifests/proxy/configmap.yaml`.
 
 ### Proxy Bypass
 
@@ -65,12 +45,9 @@ Use for:
 Traffic to bypassed hosts is **not scanned for secrets** - this is why you should only bypass services you trust.
 
 ```yaml
-configMapGenerator:
-  - name: egress-policy
-    behavior: merge
-    literals:
-      # Comma-separated list of hosts
-      - PROXY_BYPASS=api.anthropic.com,my-mcp-server.internal,vault.internal
+data:
+  # Comma-separated list of hosts
+  PROXY_BYPASS: "api.anthropic.com,my-mcp-server.internal,vault.internal"
 ```
 
 Default: `api.anthropic.com`
@@ -80,17 +57,14 @@ Default: `api.anthropic.com`
 Domains the proxy will reject. Use for known exfiltration sites.
 
 ```yaml
-configMapGenerator:
-  - name: egress-policy
-    behavior: merge
-    literals:
-      - |
-        BLOCKED_DOMAINS=[
-          "pastebin.com",
-          "paste.ee",
-          "hastebin.com",
-          "your-blocked-site.com"
-        ]
+data:
+  BLOCKED_DOMAINS: |
+    [
+      "pastebin.com",
+      "paste.ee",
+      "hastebin.com",
+      "your-blocked-site.com"
+    ]
 ```
 
 Default includes: pastebin.com, paste.ee, hastebin.com, dpaste.org, file.io, transfer.sh, 0x0.st, ix.io, sprunge.us, termbin.com
@@ -100,15 +74,12 @@ Default includes: pastebin.com, paste.ee, hastebin.com, dpaste.org, file.io, tra
 API endpoints the proxy will block. Defense-in-depth against agents performing dangerous operations.
 
 ```yaml
-configMapGenerator:
-  - name: egress-policy
-    behavior: merge
-    literals:
-      - |
-        GITHUB_API_BLOCKED=[
-          ["PUT", "/repos/[^/]+/[^/]+/pulls/\\d+/merge"],
-          ["DELETE", "/repos/.*"]
-        ]
+data:
+  GITHUB_API_BLOCKED: |
+    [
+      ["PUT", "/repos/[^/]+/[^/]+/pulls/\\d+/merge"],
+      ["DELETE", "/repos/.*"]
+    ]
 ```
 
 Default blocks:
@@ -126,13 +97,12 @@ Default blocks:
 
 Commands run before every `git push`. If any hook fails, the push is rejected.
 
+Edit `manifests/dispatcher/configmap.yaml`:
+
 ```yaml
-configMapGenerator:
-  - name: dispatcher-config
-    behavior: replace
-    literals:
-      # JSON array of shell commands
-      - PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail --no-update"]
+data:
+  # JSON array of shell commands
+  PRE_PUSH_HOOKS: '["trufflehog git file://. --max-depth=10 --fail --no-update"]'
 ```
 
 Default: TruffleHog secret scanning
@@ -141,17 +111,17 @@ Default: TruffleHog secret scanning
 
 Run tests before push:
 ```yaml
-- PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail", "pytest tests/quick/"]
+PRE_PUSH_HOOKS: '["trufflehog git file://. --max-depth=10 --fail", "pytest tests/quick/"]'
 ```
 
 Lint check:
 ```yaml
-- PRE_PUSH_HOOKS=["trufflehog git file://. --fail", "./scripts/lint.sh"]
+PRE_PUSH_HOOKS: '["trufflehog git file://. --fail", "./scripts/lint.sh"]'
 ```
 
 Disable all hooks (not recommended):
 ```yaml
-- PRE_PUSH_HOOKS=[]
+PRE_PUSH_HOOKS: '[]'
 ```
 
 ---
@@ -160,36 +130,36 @@ Disable all hooks (not recommended):
 
 Text appended to every commit message. Useful for tracking agent-generated commits.
 
+Edit `manifests/dispatcher/configmap.yaml`:
+
 ```yaml
-configMapGenerator:
-  - name: dispatcher-config
-    behavior: replace
-    literals:
-      - COMMIT_FOOTER=Built autonomously using yolo-cage v0.2.0
+data:
+  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
 ```
 
 Set to empty string to disable:
 ```yaml
-- COMMIT_FOOTER=
+COMMIT_FOOTER: ""
 ```
 
 ---
 
 ## Container Images
 
-Override image locations for your registry.
+Images are specified in the deployment files. To use a different registry, edit:
+
+- `manifests/dispatcher/deployment.yaml`
+- `manifests/proxy/egress-proxy.yaml`
+- `manifests/proxy/llm-guard.yaml`
+- `manifests/sandbox/pod-template.yaml`
+
+Find the `image:` field and update it:
 
 ```yaml
-images:
-  - name: localhost:32000/yolo-cage
-    newName: your-registry.example.com/yolo-cage
-    newTag: v0.2.0
-  - name: localhost:32000/git-dispatcher
-    newName: your-registry.example.com/git-dispatcher
-    newTag: v0.2.0
-  - name: localhost:32000/egress-proxy
-    newName: your-registry.example.com/egress-proxy
-    newTag: v0.2.0
+spec:
+  containers:
+    - name: yolo-cage
+      image: your-registry.example.com/yolo-cage:v0.2.0
 ```
 
 ---
@@ -198,67 +168,64 @@ images:
 
 ### Storage Class
 
-The PVC uses your cluster's default storage class. To specify one:
+Edit `manifests/sandbox/pvc.yaml` to specify a storage class:
 
 ```yaml
-patches:
-  - target:
-      kind: PersistentVolumeClaim
-      name: yolo-cage-workspaces
-    patch: |
-      - op: add
-        path: /spec/storageClassName
-        value: fast-ssd
+spec:
+  storageClassName: fast-ssd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
 ```
 
 ### Storage Size
 
-Default is 100Gi. To change:
+Edit `manifests/sandbox/pvc.yaml`:
 
 ```yaml
-patches:
-  - target:
-      kind: PersistentVolumeClaim
-      name: yolo-cage-workspaces
-    patch: |
-      - op: replace
-        path: /spec/resources/requests/storage
-        value: 500Gi
+spec:
+  resources:
+    requests:
+      storage: 500Gi
 ```
 
 ---
 
 ## Resource Limits
 
-Adjust CPU and memory for components.
-
-### Sandbox Pods
-
-```yaml
-patches:
-  - target:
-      kind: Deployment
-      name: yolo-cage
-    patch: |
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
-        value: 64Gi
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/cpu
-        value: "16"
-```
-
 ### Git Dispatcher
 
+Edit `manifests/dispatcher/deployment.yaml`:
+
 ```yaml
-patches:
-  - target:
-      kind: Deployment
-      name: git-dispatcher
-    patch: |
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
-        value: 8Gi
+spec:
+  template:
+    spec:
+      containers:
+        - name: git-dispatcher
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+```
+
+### Egress Proxy
+
+Edit `manifests/proxy/egress-proxy.yaml`:
+
+```yaml
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "1Gi"
+    cpu: "1"
 ```
 
 ---
@@ -271,7 +238,7 @@ Create these secrets before deploying:
 
 ```bash
 kubectl create secret generic yolo-cage-credentials \
-  --namespace=my-project \
+  --namespace=yolo-cage \
   --from-file=claude-oauth-credentials=/path/to/credentials.json
 ```
 
@@ -279,7 +246,7 @@ kubectl create secret generic yolo-cage-credentials \
 
 ```bash
 kubectl create secret generic github-pat \
-  --namespace=my-project \
+  --namespace=yolo-cage \
   --from-literal=GITHUB_PAT=ghp_your_token_here
 ```
 
@@ -289,59 +256,72 @@ The PAT needs these scopes:
 
 ---
 
-## Complete Example
+## Using a Different Namespace
 
-Here's a full `kustomization.yaml` for a production deployment:
+To deploy to a namespace other than `yolo-cage`:
 
+1. Edit `manifests/namespace.yaml` to change the namespace name
+2. Search and replace `yolo-cage` with your namespace in all manifest files:
+
+```bash
+find manifests -name "*.yaml" -exec sed -i 's/namespace: yolo-cage/namespace: my-project/g' {} \;
+```
+
+3. Create secrets in your namespace (Step 3 of setup)
+4. Deploy as normal
+
+---
+
+## Complete Configuration Example
+
+Here's what a fully configured deployment looks like:
+
+**manifests/dispatcher/configmap.yaml:**
 ```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dispatcher-config
+  namespace: yolo-cage
+data:
+  WORKSPACE_ROOT: "/workspaces"
+  GIT_USER_NAME: "David Borenstein"
+  GIT_USER_EMAIL: "david@example.com"
+  YOLO_CAGE_VERSION: "0.2.0"
+  PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
+  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
+```
 
-resources:
-  - ../../base
+**manifests/proxy/configmap.yaml:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-policy
+  namespace: yolo-cage
+data:
+  PROXY_BYPASS: "api.anthropic.com,vault.internal"
+  BLOCKED_DOMAINS: |
+    [
+      "pastebin.com",
+      "paste.ee",
+      "hastebin.com",
+      "dpaste.org",
+      "file.io",
+      "transfer.sh",
+      "0x0.st"
+    ]
+```
 
-namespace: azimuth
-
-patches:
-  - target:
-      kind: Namespace
-      name: yolo-cage
-    patch: |
-      - op: replace
-        path: /metadata/name
-        value: azimuth
-  - target:
-      kind: PersistentVolumeClaim
-      name: yolo-cage-workspaces
-    patch: |
-      - op: add
-        path: /spec/storageClassName
-        value: data-hostpath
-
-configMapGenerator:
-  - name: dispatcher-config
-    behavior: replace
-    literals:
-      - GIT_USER_NAME=David Borenstein
-      - GIT_USER_EMAIL=david@example.com
-      - WORKSPACE_ROOT=/workspaces
-      - YOLO_CAGE_VERSION=0.2.0
-      - PRE_PUSH_HOOKS=["trufflehog git file://. --max-depth=10 --fail --no-update"]
-      - COMMIT_FOOTER=Built autonomously using yolo-cage v0.2.0
-
-  - name: egress-policy
-    behavior: merge
-    literals:
-      - PROXY_BYPASS=api.anthropic.com,vault.internal
-
-images:
-  - name: localhost:32000/yolo-cage
-    newName: localhost:32000/yolo-cage
-    newTag: latest
-  - name: localhost:32000/git-dispatcher
-    newName: localhost:32000/git-dispatcher
-    newTag: latest
-  - name: localhost:32000/egress-proxy
-    newName: localhost:32000/egress-proxy
-    newTag: latest
+**manifests/sandbox/configmap.yaml:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yolo-cage-config
+  namespace: yolo-cage
+data:
+  repo-url: "https://github.com/your-org/your-project.git"
+  git-name: "David Borenstein"
+  git-email: "david@example.com"
 ```

@@ -89,7 +89,7 @@ rm claude-credentials.json
 
 ## Step 4: Generate Proxy CA Certificate
 
-The egress proxy needs a CA certificate for HTTPS interception:
+The egress proxy needs a CA certificate for HTTPS interception.
 
 ```bash
 # Generate CA key and certificate
@@ -106,41 +106,59 @@ kubectl create configmap proxy-ca \
 rm ca-key.pem ca-cert.pem
 ```
 
-## Step 5: Configure the Dispatcher
+## Step 5: Configure
 
-Edit the dispatcher config with your git identity:
+Edit the manifest files to set your configuration:
 
-```bash
-# Edit the configmap
-$EDITOR manifests/base/dispatcher/configmap.yaml
-```
+### Git Identity (Required)
 
-Update these values:
+Edit `manifests/dispatcher/configmap.yaml`:
+
 ```yaml
 data:
   GIT_USER_NAME: "Your Name"
   GIT_USER_EMAIL: "you@example.com"
 ```
 
-## Step 6: Deploy
+### Repository URL (Required)
 
-### Option A: Direct Apply (Quick Start)
+Edit `manifests/sandbox/configmap.yaml`:
 
-```bash
-kubectl apply -k manifests/base
+```yaml
+data:
+  repo-url: "https://github.com/your-org/your-project.git"
 ```
 
-### Option B: Kustomize Overlay (Recommended for Customization)
+### Proxy Bypass (Optional)
+
+If you use MCP servers or other authenticated services, add them to `manifests/proxy/configmap.yaml`:
+
+```yaml
+data:
+  PROXY_BYPASS: "api.anthropic.com,my-mcp-server.internal"
+```
+
+See [Configuration Reference](configuration.md) for all options.
+
+## Step 6: Deploy
+
+### Option A: Deploy Script (Recommended)
 
 ```bash
-# Copy the example overlay
-cp -r manifests/overlays/example manifests/overlays/my-project
+./deploy.sh
+```
 
-# Edit your overlay
-$EDITOR manifests/overlays/my-project/kustomization.yaml
+The script applies all manifests and waits for pods to be ready.
 
-# Apply
-kubectl apply -k manifests/overlays/my-project
+### Option B: Manual Apply
+
+```bash
+kubectl apply -f manifests/namespace.yaml
+kubectl apply -f manifests/dispatcher/
+kubectl apply -f manifests/proxy/configmap.yaml
+kubectl apply -f manifests/proxy/egress-proxy.yaml
+kubectl apply -f manifests/proxy/llm-guard.yaml
+kubectl apply -f manifests/sandbox/
 ```
 
 Wait for all pods to be ready:
@@ -267,4 +285,5 @@ All blocked requests are logged with reasons.
 ## Next Steps
 
 - Read [Architecture](architecture.md) to understand the security model
-- See [Customization](customization.md) for advanced configuration
+- See [Configuration](configuration.md) for all configuration options
+- See [Customization](customization.md) for advanced customization

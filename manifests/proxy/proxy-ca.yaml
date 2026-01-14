@@ -1,0 +1,24 @@
+# Proxy CA certificate for HTTPS interception
+#
+# NOTE: This file is NOT applied by kustomize. It exists as a reference only.
+# You must create the proxy-ca ConfigMap manually before deploying.
+# See docs/setup.md Step 4 for instructions.
+#
+# Alternative: Extract the CA from a running egress-proxy:
+#   kubectl exec -n <namespace> deployment/egress-proxy -- \
+#     cat /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem > mitmproxy-ca.pem
+#   kubectl create configmap proxy-ca \
+#     --namespace=<namespace> \
+#     --from-file=mitmproxy-ca.pem=mitmproxy-ca.pem
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxy-ca
+data:
+  mitmproxy-ca.pem: |
+    # PLACEHOLDER - Replace with actual CA certificate
+    # See instructions above
+    -----BEGIN CERTIFICATE-----
+    REPLACE_THIS_WITH_ACTUAL_CA_CERTIFICATE
+    -----END CERTIFICATE-----

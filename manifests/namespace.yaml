@@ -1,5 +1,5 @@
 # Namespace for yolo-cage
-# Name is set by kustomize from kustomization.yaml
+# Edit the name below to use a different namespace
 apiVersion: v1
 kind: Namespace
 metadata:
