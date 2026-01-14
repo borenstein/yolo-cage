@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import WORKSPACE_ROOT, REPO_URL
 from .clone import clone_and_checkout, CloneError
-from .sync import update_workspace, initialize_with_existing_files, SyncError
+from .sync import update_workspace, SyncError
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,11 @@ def bootstrap_workspace(branch: str) -> dict:
         if state == "has_git":
             return update_workspace(workspace, branch)
         elif state == "has_files":
-            return initialize_with_existing_files(workspace, branch)
+            raise BootstrapError(
+                f"Workspace {workspace} has files but no .git directory. "
+                "This indicates a corrupted or manually modified workspace. "
+                "Delete the workspace directory and try again."
+            )
         else:
             return clone_and_checkout(workspace, branch)
 

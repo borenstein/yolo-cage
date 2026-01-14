@@ -1,13 +1,11 @@
 """Workspace sync operations for bootstrap.
 
-Handles updating existing workspaces and initializing workspaces
-that have files but no git repository.
+Handles updating existing workspaces (those with a .git directory).
 """
 
 import logging
 from pathlib import Path
 
-from .config import REPO_URL
 from .git import execute_with_auth, execute
 
 logger = logging.getLogger(__name__)
@@ -55,41 +53,10 @@ def update_workspace(workspace: Path, branch: str) -> dict:
     }
 
 
-def initialize_with_existing_files(workspace: Path, branch: str) -> dict:
-    """
-    Initialize git in workspace that has files but no .git directory.
-
-    This handles cases like leftover files from a previous workspace.
-
-    Args:
-        workspace: Directory with files but no .git
-        branch: Branch to setup
-
-    Returns:
-        Status dict with workspace, branch, action, cloned keys
-
-    Raises:
-        SyncError on failure
-    """
-    _init_and_add_remote(workspace)
-    _fetch_origin(workspace, raise_on_error=True)
-    action = _setup_branch_with_existing_files(workspace, branch)
-
-    return {
-        "status": "success",
-        "workspace": str(workspace),
-        "branch": branch,
-        "action": action,
-        "cloned": False,
-    }
-
-
-def _fetch_origin(workspace: Path, raise_on_error: bool = False) -> None:
-    """Fetch from origin. Optionally raise on failure."""
+def _fetch_origin(workspace: Path) -> None:
+    """Fetch from origin, logging warning on failure."""
     result = execute_with_auth(["fetch", "origin"], cwd=str(workspace))
     if result.exit_code != 0:
-        if raise_on_error:
-            raise SyncError(f"Failed to fetch: {result.stderr}")
         logger.warning(f"Failed to fetch: {result.stderr}")
 
 
@@ -131,49 +98,3 @@ def _branch_exists_on_remote(workspace: Path, branch: str) -> bool:
         cwd=str(workspace)
     )
     return branch in result.stdout
-
-
-def _init_and_add_remote(workspace: Path) -> None:
-    """Initialize git and add origin remote."""
-    result = execute(["init"], cwd=str(workspace))
-    if result.exit_code != 0:
-        raise SyncError(f"Failed to init git: {result.stderr}")
-
-    result = execute(["remote", "add", "origin", REPO_URL], cwd=str(workspace))
-    if result.exit_code != 0:
-        raise SyncError(f"Failed to add remote: {result.stderr}")
-
-
-def _setup_branch_with_existing_files(workspace: Path, branch: str) -> str:
-    """Setup branch in newly initialized repo with existing files."""
-    if _branch_exists_on_remote(workspace, branch):
-        result = execute(["reset", f"origin/{branch}"], cwd=str(workspace))
-        if result.exit_code != 0:
-            raise SyncError(f"Failed to reset to origin/{branch}: {result.stderr}")
-
-        result = execute(
-            ["checkout", "-B", branch, f"origin/{branch}"],
-            cwd=str(workspace)
-        )
-        action = "initialized_from_remote"
-    else:
-        default_branch = _get_default_branch(workspace)
-        result = execute(
-            ["checkout", "-b", branch, f"origin/{default_branch}"],
-            cwd=str(workspace)
-        )
-        action = "initialized_new_branch"
-
-    if result.exit_code != 0:
-        raise SyncError(f"Failed to setup branch {branch}: {result.stderr}")
-
-    return action
-
-
-def _get_default_branch(workspace: Path) -> str:
-    """Get default branch from remote, fallback to 'main'."""
-    result = execute(["remote", "show", "origin"], cwd=str(workspace))
-    for line in result.stdout.split('\n'):
-        if "HEAD branch:" in line:
-            return line.split(":")[-1].strip()
-    return "main"

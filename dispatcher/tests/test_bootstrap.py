@@ -59,17 +59,15 @@ class TestBootstrapWorkspace:
         mock_update.assert_called_once_with(workspace, "test-branch")
         assert result["action"] == "updated"
 
-    def test_routes_to_initialize_for_files_without_git(self, tmp_path):
-        """Workspace with files but no .git routes to initialize_with_existing_files."""
+    def test_raises_error_for_files_without_git(self, tmp_path):
+        """Workspace with files but no .git raises BootstrapError."""
         workspace = tmp_path / "test-branch"
         workspace.mkdir()
         (workspace / "some_file.txt").write_text("content")
 
         with patch("dispatcher.bootstrap.WORKSPACE_ROOT", str(tmp_path)):
             with patch("dispatcher.bootstrap.REPO_URL", "https://github.com/test/repo.git"):
-                with patch("dispatcher.bootstrap.initialize_with_existing_files") as mock_init:
-                    mock_init.return_value = {"status": "success", "action": "initialized"}
-                    result = bootstrap_workspace("test-branch")
-
-        mock_init.assert_called_once_with(workspace, "test-branch")
-        assert result["action"] == "initialized"
+                with pytest.raises(BootstrapError) as exc:
+                    bootstrap_workspace("test-branch")
+                assert "has files but no .git directory" in str(exc.value)
+                assert "corrupted or manually modified" in str(exc.value)
