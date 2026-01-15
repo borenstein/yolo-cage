@@ -85,6 +85,7 @@ The agent is a **proposer**, not an executor. All the permission prompts that wo
 - **State isolation**: Agents cannot interfere with each other's work
 - **Incorruptible identity**: Dispatcher identifies agents by pod IP
 - **Clean failure modes**: If one agent goes haywire, others are unaffected
+- **Credential refresh**: When Claude re-authenticates, a sidecar propagates new credentials to k8s secrets so other pods pick them up on restart
 
 ### Git Shim Architecture
 
