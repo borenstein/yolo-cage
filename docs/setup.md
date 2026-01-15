@@ -60,8 +60,6 @@ kubectl create secret generic github-pat \
 
 ### Claude Authentication
 
-Claude credentials are shared automatically across all sandbox pods via a persistent volume. No secret creation needed.
-
 The first time you run `claude` in any sandbox pod, you'll complete the standard OAuth flow. After that, all sandbox pods share the same credentials—just like running multiple `claude` processes on a single laptop.
 
 ## Step 4: Generate Proxy CA Certificate
