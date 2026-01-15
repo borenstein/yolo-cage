@@ -9,6 +9,7 @@ metadata:
     app: yolo-cage
     yolo-cage/branch: ${BRANCH}
 spec:
+  serviceAccountName: yolo-cage-sandbox
   restartPolicy: Never
   terminationGracePeriodSeconds: 5
 
@@ -150,6 +151,57 @@ spec:
           readOnly: true
 
       # Uses default CMD from Dockerfile (yolo-cage-init which registers then sleeps)
+
+    # Credential watcher sidecar - propagates refreshed OAuth credentials to k8s secret
+    - name: credential-watcher
+      image: bitnami/kubectl:latest
+      command:
+        - /bin/bash
+        - -c
+        - |
+          CRED_FILE=/claude-home/credentials.json
+          SECRET_NAME=yolo-cage-credentials
+          NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+
+          echo "credential-watcher: starting (polling every 30s)"
+
+          # Wait for credentials file to exist (init container creates it)
+          while [[ ! -f "$CRED_FILE" ]]; do
+            echo "credential-watcher: waiting for credentials file..."
+            sleep 5
+          done
+
+          LAST_HASH=$(sha256sum "$CRED_FILE" 2>/dev/null | cut -d' ' -f1)
+          echo "credential-watcher: initial hash $LAST_HASH"
+
+          while true; do
+            sleep 30
+            CURR_HASH=$(sha256sum "$CRED_FILE" 2>/dev/null | cut -d' ' -f1)
+            if [[ "$CURR_HASH" != "$LAST_HASH" && -n "$CURR_HASH" ]]; then
+              echo "credential-watcher: credentials changed, updating secret..."
+              kubectl create secret generic "$SECRET_NAME" \
+                --namespace="$NAMESPACE" \
+                --from-file=claude-oauth-credentials="$CRED_FILE" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              if [[ $? -eq 0 ]]; then
+                echo "credential-watcher: secret updated successfully"
+                LAST_HASH="$CURR_HASH"
+              else
+                echo "credential-watcher: failed to update secret"
+              fi
+            fi
+          done
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+      volumeMounts:
+        - name: claude-home
+          mountPath: /claude-home
+          readOnly: true
 
   volumes:
     - name: workspaces
