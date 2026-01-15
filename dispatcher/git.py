@@ -33,6 +33,12 @@ def _base_env() -> dict:
     env["GIT_COMMITTER_NAME"] = GIT_USER_NAME
     env["GIT_COMMITTER_EMAIL"] = GIT_USER_EMAIL
     env["GIT_TERMINAL_PROMPT"] = "0"
+    # Trust workspace directories regardless of ownership.
+    # Kubernetes creates subPath mount directories as root before the
+    # dispatcher (running as uid 1000) can clone into them.
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "safe.directory"
+    env["GIT_CONFIG_VALUE_0"] = "*"
     return env
 
 

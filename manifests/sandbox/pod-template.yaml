@@ -34,7 +34,7 @@ spec:
         - name: ca-bundle
           mountPath: /ca-bundle
 
-    # Set up .claude directory with credentials from secret
+    # Set up .claude directory with credentials and user-level CLAUDE.md
     - name: setup-claude-home
       image: python:3.12-slim-bookworm
       command:
@@ -43,6 +43,39 @@ spec:
         - |
           cp /secrets/claude-oauth-credentials /claude-home/credentials.json
           chmod 600 /claude-home/credentials.json
+          cat > /claude-home/CLAUDE.md <<'CLAUDE_EOF'
+          # yolo-cage Environment
+
+          You are running inside yolo-cage, a sandboxed environment for autonomous development.
+          Claude Code is running in YOLO mode (--dangerously-skip-permissions), but the sandbox
+          enforces containment at the infrastructure level.
+
+          ## Your Constraints
+
+          - **Branch isolation**: You can only commit/push to your assigned branch
+          - **Read-only elsewhere**: You can read any branch, but cannot modify others
+          - **No PR merging**: You may open PRs for human review, but cannot merge them
+          - **Git enforcement**: Git operations go through a dispatcher that enforces these rules
+
+          ## Your Capabilities
+
+          - Full read access to the repository (all branches)
+          - Read/write access to GitHub issues and PR comments
+          - Can open pull requests on your branch
+          - Can install packages, run tests, do anything inside this container
+          - Full access to development tools (npm, pip, make, etc.)
+
+          ## Workflow
+
+          1. Work in this workspace (your branch is set via $YOLO_CAGE_BRANCH)
+          2. Commit and push your changes
+          3. When done, open a PR and explain what you built
+
+          ## Notes
+
+          - If git operations fail with "yolo-cage:" messages, that's the dispatcher enforcing rules
+          - Your user reviews and merges PRs, not you
+          CLAUDE_EOF
       volumeMounts:
         - name: claude-credentials
           mountPath: /secrets

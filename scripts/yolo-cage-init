@@ -4,8 +4,10 @@
 # This script runs when a yolo-cage pod starts. It:
 #   1. Calls the dispatcher to bootstrap the workspace (clone repo, setup branch)
 #   2. Registers this pod with the git dispatcher
-#   3. Creates CLAUDE.md with sandbox instructions
-#   4. Optionally runs a user-provided init script
+#   3. Optionally runs a user-provided init script
+#
+# Note: User-level CLAUDE.md (sandbox instructions) is created by the
+# setup-claude-home init container, not here.
 
 set -e
 
@@ -60,48 +62,6 @@ else
 fi
 
 cd "$WORKSPACE"
-
-# Create yolo-cage CLAUDE.md if no CLAUDE.md exists
-# This informs Claude about the sandbox constraints
-# (The repo may have its own CLAUDE.md, so we don't overwrite)
-if [[ ! -f "$WORKSPACE/CLAUDE.md" ]]; then
-    echo "yolo-cage: Creating sandbox CLAUDE.md..."
-    cat > "$WORKSPACE/CLAUDE.md" <<'CLAUDE_EOF'
-# yolo-cage Environment
-
-You are running inside yolo-cage, a sandboxed environment for autonomous development.
-Claude Code is running in YOLO mode (--dangerously-skip-permissions), but the sandbox
-enforces containment at the infrastructure level.
-
-## Your Constraints
-
-- **Branch isolation**: You can only commit/push to your assigned branch
-- **Read-only elsewhere**: You can read any branch, but cannot modify others
-- **No PR merging**: You may open PRs for human review, but cannot merge them
-- **Secret scanning**: All network traffic is monitored for secrets
-- **Git enforcement**: Git operations go through a dispatcher that enforces these rules
-
-## Your Capabilities
-
-- Full read access to the repository (all branches)
-- Read/write access to GitHub issues and PR comments
-- Can open pull requests on your branch
-- Can install packages, run tests, do anything inside this container
-- Full access to development tools (npm, pip, make, etc.)
-
-## Workflow
-
-1. Work in this workspace (your branch is set via $YOLO_CAGE_BRANCH)
-2. Commit and push your changes
-3. When done, open a PR and explain what you built
-
-## Notes
-
-- If git operations fail with "yolo-cage:" messages, that's the dispatcher enforcing rules
-- SSH is blocked; all network traffic goes through the egress proxy
-- Your commits will include a footer: "Built autonomously using yolo-cage"
-CLAUDE_EOF
-fi
 
 # Run user init script if present
 if [[ -x "/config/init-workspace" ]]; then
