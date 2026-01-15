@@ -43,11 +43,11 @@ spec:
         - -c
         - |
           # Create branch-specific .claude directory under .claude-homes/
-          mkdir -p /pvc/.claude-homes/${BRANCH}
+          mkdir -p /workspaces/.claude-homes/${BRANCH}
           # Copy credentials if not already present (preserve existing auth state)
-          if [ ! -f /pvc/.claude-homes/${BRANCH}/credentials.json ]; then
-            cp /secrets/claude-oauth-credentials /pvc/.claude-homes/${BRANCH}/credentials.json
-            chmod 600 /pvc/.claude-homes/${BRANCH}/credentials.json
+          if [ ! -f /workspaces/.claude-homes/${BRANCH}/credentials.json ]; then
+            cp /secrets/claude-oauth-credentials /workspaces/.claude-homes/${BRANCH}/credentials.json
+            chmod 600 /workspaces/.claude-homes/${BRANCH}/credentials.json
           fi
       env:
         - name: BRANCH
@@ -56,8 +56,8 @@ spec:
         - name: claude-credentials
           mountPath: /secrets
           readOnly: true
-        - name: claude-homes
-          mountPath: /pvc
+        - name: workspaces
+          mountPath: /workspaces
 
   containers:
     - name: yolo-cage
@@ -110,7 +110,7 @@ spec:
       volumeMounts:
         - name: workspaces
           mountPath: /workspaces
-        - name: claude-homes
+        - name: workspaces
           mountPath: /home/dev/.claude
           subPath: .claude-homes/${BRANCH}
         - name: proxy-ca
@@ -139,13 +139,6 @@ spec:
           - key: claude-oauth-credentials
             path: claude-oauth-credentials
             mode: 0600
-
-    # Claude home directories persist on workspaces PVC
-    # Each branch gets its own subdirectory: /.claude-homes/${BRANCH}/
-    - name: claude-homes
-      persistentVolumeClaim:
-        claimName: yolo-cage-workspaces
-      # Note: subPath handled at volumeMounts level
 
     - name: proxy-ca
       configMap:
