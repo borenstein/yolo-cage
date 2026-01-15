@@ -18,10 +18,8 @@ CWD="$(pwd)"
 # Use jq if available, otherwise simple bash escaping
 if command -v jq &>/dev/null; then
     # Build args array properly with jq
-    PAYLOAD=$(jq -n \
-        --argjson args "$(printf '%s\n' "$@" | jq -R . | jq -s .)" \
-        --arg cwd "$CWD" \
-        '{args: $args, cwd: $cwd}')
+    # Use --args to handle arguments with newlines correctly
+    PAYLOAD=$(jq -n --arg cwd "$CWD" '{args: $ARGS.positional, cwd: $cwd}' --args -- "$@")
 else
     # Fallback: simple JSON construction (assumes no special chars in args)
     ARGS_JSON="["

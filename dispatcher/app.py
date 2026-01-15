@@ -8,12 +8,27 @@ from fastapi.responses import PlainTextResponse
 from . import registry
 from .bootstrap import bootstrap_workspace, BootstrapError
 from .commands import CommandCategory, classify, get_subcommand
+from .config import WORKSPACE_ROOT
 from .gh import execute as gh_execute
 from .gh_commands import GhCommandCategory, classify_gh
 from .git import execute, execute_with_auth
 from .hooks import run_pre_push_hooks
 from .models import GitRequest, GhRequest
 from .policy import check_branch_switch, check_merge_allowed, check_push_allowed
+
+
+def _translate_cwd(agent_cwd: str, branch: str) -> str:
+    """
+    Translate agent's cwd to dispatcher's filesystem path.
+
+    Agent sees /workspace, dispatcher has /workspaces/{branch}.
+    """
+    if agent_cwd == "/workspace":
+        return f"{WORKSPACE_ROOT}/{branch}"
+    if agent_cwd.startswith("/workspace/"):
+        return f"{WORKSPACE_ROOT}/{branch}/{agent_cwd[11:]}"
+    # Fallback: use as-is (shouldn't happen in normal operation)
+    return agent_cwd
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +116,9 @@ async def handle_git(git_req: GitRequest, request: Request):
         logger.warning(f"Unregistered pod {client_ip} attempted git operation")
         raise HTTPException(403, "yolo-cage: pod not registered. Contact cluster admin.")
 
+    # Translate agent's /workspace to dispatcher's /workspaces/{branch}
+    cwd = _translate_cwd(git_req.cwd, assigned_branch)
+
     logger.info(f"Git from {client_ip} ({assigned_branch}): {git_req.args}")
 
     category, deny_message = classify(git_req.args)
@@ -114,38 +132,38 @@ async def handle_git(git_req: GitRequest, request: Request):
     # Branch switch: execute but warn if switching away
     if category == CommandCategory.BRANCH:
         warning = check_branch_switch(git_req.args, assigned_branch)
-        result = execute(git_req.args, git_req.cwd)
+        result = execute(git_req.args, cwd)
         output = (warning + "\n" if warning else "") + result.stdout + result.stderr
         return _git_response(output, result.exit_code)
 
     # Merge: must be on assigned branch
     if category == CommandCategory.MERGE:
-        error = check_merge_allowed(git_req.cwd, assigned_branch, get_subcommand(git_req.args))
+        error = check_merge_allowed(cwd, assigned_branch, get_subcommand(git_req.args))
         if error:
             return _denial_response(error)
-        result = execute(git_req.args, git_req.cwd)
+        result = execute(git_req.args, cwd)
         return _git_response(result.stdout + result.stderr, result.exit_code)
 
     # Push: branch enforcement + pre-push hooks
     if category == CommandCategory.REMOTE_WRITE:
-        error = check_push_allowed(git_req.args, git_req.cwd, assigned_branch)
+        error = check_push_allowed(git_req.args, cwd, assigned_branch)
         if error:
             return _denial_response(error)
 
-        hook_ok, hook_output = run_pre_push_hooks(git_req.cwd)
+        hook_ok, hook_output = run_pre_push_hooks(cwd)
         if not hook_ok:
             return _denial_response(f"yolo-cage: push rejected by pre-push hooks\n\n{hook_output}")
 
-        result = execute_with_auth(git_req.args, git_req.cwd)
+        result = execute_with_auth(git_req.args, cwd)
         return _git_response(result.stdout + result.stderr, result.exit_code)
 
     # Remote read (fetch/pull): just needs auth
     if category == CommandCategory.REMOTE_READ:
-        result = execute_with_auth(git_req.args, git_req.cwd)
+        result = execute_with_auth(git_req.args, cwd)
         return _git_response(result.stdout + result.stderr, result.exit_code)
 
     # Local operations: no restrictions
-    result = execute(git_req.args, git_req.cwd)
+    result = execute(git_req.args, cwd)
     return _git_response(result.stdout + result.stderr, result.exit_code)
 
 
@@ -159,6 +177,9 @@ async def handle_gh(gh_req: GhRequest, request: Request):
         logger.warning(f"Unregistered pod {client_ip} attempted gh operation")
         raise HTTPException(403, "yolo-cage: pod not registered. Contact cluster admin.")
 
+    # Translate agent's /workspace to dispatcher's /workspaces/{branch}
+    cwd = _translate_cwd(gh_req.cwd, assigned_branch)
+
     logger.info(f"gh from {client_ip} ({assigned_branch}): {gh_req.args}")
 
     category, deny_message = classify_gh(gh_req.args)
@@ -170,5 +191,5 @@ async def handle_gh(gh_req: GhRequest, request: Request):
         return _denial_response("yolo-cage: unrecognized or disallowed gh operation\n")
 
     # Allowed: execute with authentication
-    result = gh_execute(gh_req.args, gh_req.cwd)
+    result = gh_execute(gh_req.args, cwd)
     return _git_response(result.stdout + result.stderr, result.exit_code)
