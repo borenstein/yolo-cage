@@ -38,17 +38,15 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN npm install -g @anthropic-ai/claude-code
 
 # Create non-root user for development
-RUN useradd -m -s /bin/bash dev \
-    && mkdir -p /workspace \
-    && chown -R dev:dev /workspace
+RUN useradd -m -s /bin/bash dev
 
 # Install uv for dev user as well
 USER dev
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/dev/.local/bin:$PATH"
 
-# Working directory
-WORKDIR /workspace
+# Working directory (created by volume mount)
+WORKDIR /home/dev/workspace
 
 # Copy scripts
 COPY scripts/git-shim /usr/local/bin/git-shim

@@ -13,7 +13,7 @@ set -e
 
 BRANCH="${YOLO_CAGE_BRANCH:-}"
 DISPATCHER="${YOLO_CAGE_DISPATCHER:-http://git-dispatcher:8080}"
-WORKSPACE="/workspace"
+WORKSPACE="/home/dev/workspace"
 
 if [[ -z "$BRANCH" ]]; then
     echo "Error: YOLO_CAGE_BRANCH not set"

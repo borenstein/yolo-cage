@@ -298,14 +298,6 @@ resources:
 
 Create these secrets before deploying:
 
-### Claude Credentials (Required)
-
-```bash
-kubectl create secret generic yolo-cage-credentials \
-  --namespace=yolo-cage \
-  --from-file=claude-oauth-credentials=/path/to/credentials.json
-```
-
 ### GitHub PAT (Required)
 
 ```bash

@@ -34,16 +34,25 @@ spec:
         - name: ca-bundle
           mountPath: /ca-bundle
 
-    # Set up .claude directory with credentials and user-level CLAUDE.md
+    # Ensure shared Claude Code state exists (credentials + config)
     - name: setup-claude-home
       image: python:3.12-slim-bookworm
       command:
         - /bin/sh
         - -c
         - |
-          cp /secrets/claude-oauth-credentials /claude-home/credentials.json
-          chmod 600 /claude-home/credentials.json
-          cat > /claude-home/CLAUDE.md <<'CLAUDE_EOF'
+          # Create .claude directory if it doesn't exist
+          mkdir -p /pvc/.claude
+
+          # Create .claude.json if it doesn't exist (Claude Code config file)
+          # Must exist before main container starts so subPath mounts as file, not directory
+          if [ ! -f /pvc/.claude.json ]; then
+            echo '{}' > /pvc/.claude.json
+          fi
+
+          # Only create CLAUDE.md if it doesn't exist (preserve any manual edits)
+          if [ ! -f /pvc/.claude/CLAUDE.md ]; then
+            cat > /pvc/.claude/CLAUDE.md <<'CLAUDE_EOF'
           # yolo-cage Environment
 
           You are running inside yolo-cage, a sandboxed environment for autonomous development.
@@ -76,12 +85,10 @@ spec:
           - If git operations fail with "yolo-cage:" messages, that's the dispatcher enforcing rules
           - Your user reviews and merges PRs, not you
           CLAUDE_EOF
+          fi
       volumeMounts:
-        - name: claude-credentials
-          mountPath: /secrets
-          readOnly: true
-        - name: claude-home
-          mountPath: /claude-home
+        - name: workspaces
+          mountPath: /pvc
 
   containers:
     - name: yolo-cage
@@ -133,10 +140,14 @@ spec:
 
       volumeMounts:
         - name: workspaces
-          mountPath: /workspace
+          mountPath: /home/dev/workspace
           subPath: ${BRANCH}
-        - name: claude-home
+        - name: workspaces
           mountPath: /home/dev/.claude
+          subPath: .claude
+        - name: workspaces
+          mountPath: /home/dev/.claude.json
+          subPath: .claude.json
         - name: proxy-ca
           mountPath: /etc/ssl/certs/mitmproxy-ca.pem
           subPath: mitmproxy-ca.pem
@@ -155,17 +166,6 @@ spec:
     - name: workspaces
       persistentVolumeClaim:
         claimName: yolo-cage-workspaces
-
-    - name: claude-credentials
-      secret:
-        secretName: yolo-cage-credentials
-        items:
-          - key: claude-oauth-credentials
-            path: claude-oauth-credentials
-            mode: 0600
-
-    - name: claude-home
-      emptyDir: {}
 
     - name: proxy-ca
       configMap:

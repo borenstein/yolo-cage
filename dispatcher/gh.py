@@ -17,6 +17,11 @@ def _base_env() -> dict:
         env["GH_TOKEN"] = GITHUB_PAT
     # Disable interactive prompts
     env["GH_PROMPT_DISABLED"] = "1"
+    # Trust workspace directories regardless of ownership.
+    # gh calls git internally, which needs this for the same reason as git.py.
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "safe.directory"
+    env["GIT_CONFIG_VALUE_0"] = "*"
     return env
 
 

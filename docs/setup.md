@@ -58,34 +58,11 @@ kubectl create secret generic github-pat \
   --from-literal=GITHUB_PAT=ghp_your_token_here
 ```
 
-### Claude OAuth Credentials (Required)
+### Claude Authentication
 
-Extract Claude credentials from an existing installation:
+Claude credentials are shared automatically across all sandbox pods via a persistent volume. No secret creation needed.
 
-**On macOS:**
-```bash
-security find-generic-password -s "Claude Code" -w > claude-credentials.json
-```
-
-**On Linux:**
-```bash
-cp ~/.claude/.credentials.json claude-credentials.json
-```
-
-If you don't have credentials yet:
-1. Install Claude Code: `npm install -g @anthropic-ai/claude-code`
-2. Run `claude` and complete the OAuth flow
-3. Extract credentials as above
-
-Create the secret:
-```bash
-kubectl create secret generic yolo-cage-credentials \
-  --namespace=yolo-cage \
-  --from-file=claude-oauth-credentials=./claude-credentials.json
-
-# Clean up
-rm claude-credentials.json
-```
+The first time you run `claude` in any sandbox pod, you'll complete the standard OAuth flow. After that, all sandbox pods share the same credentials—just like running multiple `claude` processes on a single laptop.
 
 ## Step 4: Generate Proxy CA Certificate
 
