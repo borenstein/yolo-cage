@@ -6,10 +6,11 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from . import registry
+from . import pods
 from .handlers import git as git_handler
 from .handlers import gh as gh_handler
 from .bootstrap import bootstrap_workspace, BootstrapError
-from .models import GitRequest, GhRequest
+from .models import GitRequest, GhRequest, PodCreateRequest, PodInfo, PodListResponse, PodCreateResponse
 from .paths import translate_cwd
 
 
@@ -100,3 +101,61 @@ async def handle_gh(gh_req: GhRequest, request: Request):
     logger.info(f"gh from {client_ip} ({assigned_branch}): {gh_req.args}")
 
     return gh_handler.handle(gh_req.args, cwd)
+
+
+# Pod lifecycle management endpoints
+@app.post("/pods", response_model=PodCreateResponse)
+async def create_pod(req: PodCreateRequest):
+    """Create a new pod for a branch."""
+    logger.info(f"Create pod requested for branch: {req.branch}")
+    try:
+        return pods.create_pod(req.branch)
+    except Exception as e:
+        logger.error(f"Failed to create pod: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/pods", response_model=PodListResponse)
+async def list_pods():
+    """List all yolo-cage pods."""
+    try:
+        pod_list = pods.list_pods()
+        return PodListResponse(pods=pod_list)
+    except Exception as e:
+        logger.error(f"Failed to list pods: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/pods/{branch}", response_model=PodInfo)
+async def get_pod(branch: str):
+    """Get status of a specific pod."""
+    try:
+        pod = pods.get_pod(branch)
+        if pod is None:
+            raise HTTPException(404, f"Pod for branch '{branch}' not found")
+        return pod
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get pod: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.delete("/pods/{branch}")
+async def delete_pod(branch: str, clean: bool = False):
+    """Delete a pod. Use ?clean=true to also delete the workspace."""
+    logger.info(f"Delete pod requested for branch: {branch} (clean={clean})")
+    try:
+        deleted = pods.delete_pod(branch, clean_workspace=clean)
+        if not deleted:
+            raise HTTPException(404, f"Pod for branch '{branch}' not found")
+        return {
+            "status": "deleted",
+            "branch": branch,
+            "workspace_cleaned": clean
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete pod: {e}")
+        raise HTTPException(500, str(e))

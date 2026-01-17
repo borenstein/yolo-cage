@@ -7,82 +7,34 @@
 #   - Egress proxy (scans for secrets)
 #
 # Usage:
-#   yolo-cage create <branch> [-n namespace]
-#   yolo-cage list [-n namespace]
-#   yolo-cage attach <branch> [-n namespace]
-#   yolo-cage delete <branch> [-n namespace]
-#   yolo-cage logs <branch> [-n namespace]
+#   yolo-cage create <branch>
+#   yolo-cage list
+#   yolo-cage attach <branch>
+#   yolo-cage delete <branch> [--clean]
+#   yolo-cage logs <branch>
 
 set -e
 
-# Default namespace
-DEFAULT_NAMESPACE="yolo-cage"
-NAMESPACE="${DEFAULT_NAMESPACE}"
+# Configuration
+NAMESPACE="${YOLO_CAGE_NAMESPACE:-yolo-cage}"
+DISPATCHER_URL="${YOLO_CAGE_DISPATCHER_URL:-}"
 
-# Find manifests directory (where sandbox/, dispatcher/, proxy/ live)
-# Priority: YOLO_CAGE_HOME > relative to script > system install location
-find_manifests_dir() {
-    # 1. Environment variable (explicit override)
-    if [[ -n "${YOLO_CAGE_HOME:-}" && -d "${YOLO_CAGE_HOME}/manifests" ]]; then
-        echo "${YOLO_CAGE_HOME}/manifests"
+# If DISPATCHER_URL not set, try to get it from kubectl
+get_dispatcher_url() {
+    if [[ -n "$DISPATCHER_URL" ]]; then
+        echo "$DISPATCHER_URL"
         return
     fi
 
-    # 2. Relative to script (dev/cloned repo)
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [[ -d "${script_dir}/../manifests" ]]; then
-        echo "${script_dir}/../manifests"
-        return
+    # Get dispatcher service ClusterIP
+    local cluster_ip
+    cluster_ip=$(kubectl get svc -n "${NAMESPACE}" git-dispatcher -o jsonpath='{.spec.clusterIP}' 2>/dev/null) || true
+
+    if [[ -n "$cluster_ip" ]]; then
+        echo "http://${cluster_ip}:8080"
+    else
+        echo ""
     fi
-
-    # 3. System install location
-    if [[ -d "/usr/local/share/yolo-cage/manifests" ]]; then
-        echo "/usr/local/share/yolo-cage/manifests"
-        return
-    fi
-
-    # Not found
-    echo ""
-}
-
-MANIFESTS_DIR="$(find_manifests_dir)"
-
-# Parse global options
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -n|--namespace)
-            NAMESPACE="$2"
-            shift 2
-            ;;
-        *)
-            break
-            ;;
-    esac
-done
-
-COMMAND="${1:-}"
-shift || true
-
-usage() {
-    cat <<EOF
-yolo-cage - Sandboxed Claude Code agents with git isolation
-
-Usage:
-  yolo-cage [-n namespace] create <branch>        Create pod for branch
-  yolo-cage [-n namespace] list                   List active pods
-  yolo-cage [-n namespace] attach <branch>        Attach to pod (tmux session)
-  yolo-cage [-n namespace] delete <branch>        Remove pod (preserve workspace)
-  yolo-cage [-n namespace] delete <branch> --clean  Remove pod AND workspace
-  yolo-cage [-n namespace] logs <branch>          Tail pod logs
-
-Options:
-  -n, --namespace NAME    Kubernetes namespace (default: ${DEFAULT_NAMESPACE})
-
-Session Management:
-  attach starts a tmux session inside the pod. Detach with Ctrl+B,D to
-  preserve the session, then reattach later with 'attach' again.
-EOF
-    exit 1
 }
 
 # Sanitize branch name for use in pod name (lowercase, replace / with -)
@@ -95,7 +47,80 @@ pod_name() {
     echo "yolo-cage-$(sanitize_branch "$1")"
 }
 
-# Wait for pod to be ready
+usage() {
+    cat <<EOF
+yolo-cage - Sandboxed Claude Code agents with git isolation
+
+Usage:
+  yolo-cage create <branch>        Create pod for branch
+  yolo-cage list                   List active pods
+  yolo-cage attach <branch>        Attach to pod (tmux session)
+  yolo-cage delete <branch>        Remove pod (preserve workspace)
+  yolo-cage delete <branch> --clean  Remove pod AND workspace
+  yolo-cage logs <branch>          Tail pod logs
+
+Environment:
+  YOLO_CAGE_NAMESPACE       Kubernetes namespace (default: yolo-cage)
+  YOLO_CAGE_DISPATCHER_URL  Dispatcher URL (auto-detected from k8s if not set)
+
+Session Management:
+  attach starts a tmux session inside the pod. Detach with Ctrl+B,D to
+  preserve the session, then reattach later with 'attach' again.
+EOF
+    exit 1
+}
+
+cmd_create() {
+    local branch="$1"
+
+    if [[ -z "$branch" ]]; then
+        echo "Error: branch name required"
+        echo "Usage: yolo-cage create <branch>"
+        exit 1
+    fi
+
+    local url
+    url=$(get_dispatcher_url)
+    if [[ -z "$url" ]]; then
+        echo "Error: Could not determine dispatcher URL."
+        echo "Set YOLO_CAGE_DISPATCHER_URL or ensure git-dispatcher service is running."
+        exit 1
+    fi
+
+    local pod=$(pod_name "$branch")
+
+    echo "Creating pod for branch: ${branch}"
+    echo "Namespace: ${NAMESPACE}"
+    echo "Pod name: ${pod}"
+    echo ""
+
+    # Call dispatcher API
+    local response
+    response=$(curl -s -X POST "${url}/pods" \
+        -H "Content-Type: application/json" \
+        -d "{\"branch\": \"${branch}\"}")
+
+    local status
+    status=$(echo "$response" | jq -r '.status // empty')
+    local message
+    message=$(echo "$response" | jq -r '.message // empty')
+
+    if [[ -n "$message" ]]; then
+        echo "$message"
+    fi
+
+    # If pod was just created (Pending), wait for it to be ready
+    if [[ "$status" == "Pending" ]]; then
+        echo ""
+        wait_for_pod "$pod"
+        echo ""
+        echo "Pod ${pod} is ready."
+        echo ""
+        echo "Launch Claude with:"
+        echo "  yolo-cage attach ${branch}"
+    fi
+}
+
 wait_for_pod() {
     local pod="$1"
     local timeout=120
@@ -103,10 +128,12 @@ wait_for_pod() {
 
     echo "Waiting for pod ${pod} to be ready..."
     while [[ $elapsed -lt $timeout ]]; do
-        local status=$(kubectl get pod -n "${NAMESPACE}" "${pod}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        local status
+        status=$(kubectl get pod -n "${NAMESPACE}" "${pod}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [[ "$status" == "Running" ]]; then
-            # Check if the container is ready (init script has run)
-            local ready=$(kubectl get pod -n "${NAMESPACE}" "${pod}" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+            # Check if the container is ready
+            local ready
+            ready=$(kubectl get pod -n "${NAMESPACE}" "${pod}" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
             if [[ "$ready" == "true" ]]; then
                 return 0
             fi
@@ -120,88 +147,27 @@ wait_for_pod() {
     return 1
 }
 
-cmd_create() {
-    local branch="$1"
-
-    if [[ -z "$branch" ]]; then
-        echo "Error: branch name required"
-        echo "Usage: yolo-cage create <branch>"
-        exit 1
-    fi
-
-    local pod=$(pod_name "$branch")
-
-    # Check if pod already exists
-    if kubectl get pod -n "${NAMESPACE}" "${pod}" &>/dev/null; then
-        echo "Pod ${pod} already exists. Use 'yolo-cage attach ${branch}' to connect."
-        exit 0
-    fi
-
-    echo "Creating pod for branch: ${branch}"
-    echo "Namespace: ${NAMESPACE}"
-    echo "Pod name: ${pod}"
-
-    # Generate pod manifest from template
-    if [[ -z "$MANIFESTS_DIR" ]]; then
-        echo "Error: Could not find yolo-cage manifests directory."
-        echo ""
-        echo "Searched in:"
-        echo "  - \$YOLO_CAGE_HOME/manifests (env var not set)"
-        echo "  - $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../manifests (not found)"
-        echo "  - /usr/local/share/yolo-cage/manifests (not found)"
-        echo ""
-        echo "Either:"
-        echo "  - Run from the cloned yolo-cage repo, or"
-        echo "  - Set YOLO_CAGE_HOME to your yolo-cage directory, or"
-        echo "  - Install manifests: sudo cp -r manifests /usr/local/share/yolo-cage/"
-        exit 1
-    fi
-
-    local template="${MANIFESTS_DIR}/sandbox/pod-template.yaml"
-    if [[ ! -f "$template" ]]; then
-        echo "Error: Pod template not found at ${template}"
-        exit 1
-    fi
-
-    # Read PROXY_BYPASS from egress-policy ConfigMap (or use default)
-    local proxy_bypass
-    proxy_bypass=$(kubectl get configmap -n "${NAMESPACE}" egress-policy -o jsonpath='{.data.PROXY_BYPASS}' 2>/dev/null || echo "api.anthropic.com")
-
-    # Replace variables in template
-    local manifest=$(sed \
-        -e "s/\${BRANCH}/${branch}/g" \
-        -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
-        -e "s/\${PROXY_BYPASS}/${proxy_bypass}/g" \
-        "$template")
-
-    # Apply the pod
-    echo "$manifest" | kubectl apply -n "${NAMESPACE}" -f -
-
-    # Wait for pod to be ready (includes registration with dispatcher)
-    if ! wait_for_pod "$pod"; then
-        echo "Error: Pod failed to start"
-        echo "Check logs with: yolo-cage logs ${branch}"
-        exit 1
-    fi
-
-    echo ""
-    echo "Pod ${pod} is ready."
-    echo ""
-    echo "Launch Claude with:"
-    if [[ "$NAMESPACE" != "$DEFAULT_NAMESPACE" ]]; then
-        echo "  yolo-cage -n ${NAMESPACE} attach ${branch}"
-    else
-        echo "  yolo-cage attach ${branch}"
-    fi
-}
-
 cmd_list() {
+    local url
+    url=$(get_dispatcher_url)
+    if [[ -z "$url" ]]; then
+        echo "Error: Could not determine dispatcher URL."
+        exit 1
+    fi
+
     echo "Active yolo-cage pods in namespace ${NAMESPACE}:"
     echo ""
 
-    kubectl get pods -n "${NAMESPACE}" -l app=yolo-cage \
-        -o custom-columns='NAME:.metadata.name,BRANCH:.metadata.labels.yolo-cage/branch,STATUS:.status.phase,IP:.status.podIP,AGE:.metadata.creationTimestamp' \
-        2>/dev/null || echo "No pods found"
+    local response
+    response=$(curl -s "${url}/pods")
+
+    # Format as table
+    echo "$response" | jq -r '
+        .pods |
+        ["NAME", "BRANCH", "STATUS", "IP", "CREATED"],
+        (.[] | [.name, .branch, .status, (.ip // "-"), (.created_at // "-")]) |
+        @tsv
+    ' | column -t
 
     echo ""
 }
@@ -224,16 +190,12 @@ cmd_attach() {
     fi
 
     # Use tmux for session persistence inside the pod
-    # -A: attach if session exists, create if not
-    # On first attach: creates session with first-turn prompt
-    # On subsequent attach: reattaches to existing session (prompt ignored)
-    # Detach with Ctrl+B,D to return here without killing the session
     echo "Attaching to Claude session in ${pod}..."
     echo "(Detach with Ctrl+B,D to preserve session)"
     echo ""
     kubectl exec -it -n "${NAMESPACE}" "${pod}" -- \
         /bin/bash -c '
-            cd /workspace
+            cd /home/dev/workspace
 
             # Read first-turn prompt if available (only used on new session)
             FIRST_TURN=""
@@ -277,30 +239,39 @@ cmd_delete() {
         exit 1
     fi
 
-    local pod=$(pod_name "$branch")
-
-    if ! kubectl get pod -n "${NAMESPACE}" "${pod}" &>/dev/null; then
-        echo "Pod ${pod} not found"
-        exit 0
+    local url
+    url=$(get_dispatcher_url)
+    if [[ -z "$url" ]]; then
+        echo "Error: Could not determine dispatcher URL."
+        exit 1
     fi
 
-    echo "Deleting pod ${pod}..."
-    kubectl delete pod -n "${NAMESPACE}" "${pod}"
-    echo "Pod deleted."
+    local pod=$(pod_name "$branch")
 
+    echo "Deleting pod ${pod}..."
+
+    local clean_param=""
     if [[ "$clean" == "true" ]]; then
-        echo ""
-        echo "Deleting workspace /workspaces/${branch}..."
-        kubectl exec -n "${NAMESPACE}" deployment/git-dispatcher -- rm -rf "/workspaces/${branch}" 2>/dev/null || true
-        echo "Workspace deleted."
+        clean_param="?clean=true"
+    fi
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "${url}/pods/${branch}${clean_param}")
+
+    if [[ "$http_code" == "200" ]]; then
+        echo "Pod deleted."
+        if [[ "$clean" == "true" ]]; then
+            echo "Workspace deleted."
+        else
+            echo ""
+            echo "Note: Workspace is preserved."
+            echo "Use --clean to delete workspace: yolo-cage delete ${branch} --clean"
+        fi
+    elif [[ "$http_code" == "404" ]]; then
+        echo "Pod ${pod} not found"
     else
-        echo ""
-        echo "Note: Workspace at /workspaces/${branch} is preserved."
-        echo "To delete it:"
-        echo "  kubectl exec -n ${NAMESPACE} deployment/git-dispatcher -- rm -rf /workspaces/${branch}"
-        echo ""
-        echo "Or use --clean next time to delete both:"
-        echo "  yolo-cage -n ${NAMESPACE} delete ${branch} --clean"
+        echo "Error: Failed to delete pod (HTTP ${http_code})"
+        exit 1
     fi
 }
 
@@ -324,8 +295,11 @@ cmd_logs() {
 }
 
 # Main dispatch
+COMMAND="${1:-}"
+shift || true
+
 case "$COMMAND" in
-    create)
+    create|new)
         cmd_create "$@"
         ;;
     list|ls)
