@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 NAMESPACE = "yolo-cage"
 WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", "/workspaces")
-PROXY_BYPASS = os.environ.get("PROXY_BYPASS", "api.anthropic.com")
+PROXY_BYPASS = os.environ.get("PROXY_BYPASS", ".anthropic.com,.claude.com")
 
 # Pod template bundled into image at build time
 TEMPLATE_PATH = Path("/app/pod-template.yaml")
