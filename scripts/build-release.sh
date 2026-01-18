@@ -137,8 +137,8 @@ echo "Proxy CA generated."
 echo ""
 echo "Phase 6: Install CLI"
 
-sudo cp "${REPO_ROOT}/scripts/yolo-cage" /usr/local/bin/yolo-cage
-sudo chmod +x /usr/local/bin/yolo-cage
+sudo cp "${REPO_ROOT}/scripts/yolo-cage-inner" /usr/local/bin/yolo-cage-inner
+sudo chmod +x /usr/local/bin/yolo-cage-inner
 
 sudo cp "${REPO_ROOT}/scripts/yolo-cage-configure" /usr/local/bin/yolo-cage-configure
 sudo chmod +x /usr/local/bin/yolo-cage-configure
