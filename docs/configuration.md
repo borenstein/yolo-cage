@@ -16,6 +16,12 @@ GIT_NAME=yolo-cage
 GIT_EMAIL=yolo-cage@localhost
 CLAUDE_OAUTH=your_oauth_token
 PROXY_BYPASS=example.com,internal.corp
+
+# Pod resources (defaults shown)
+POD_MEMORY_LIMIT=4Gi
+POD_MEMORY_REQUEST=1Gi
+POD_CPU_LIMIT=4
+POD_CPU_REQUEST=500m
 ```
 
 The CLI automatically syncs this to the VM and applies it to the cluster.

@@ -55,10 +55,14 @@ Required fields:
   REPO_URL     Repository URL (https://github.com/org/repo.git)
 
 Optional fields:
-  GIT_NAME       Git author name (default: yolo-cage)
-  GIT_EMAIL      Git author email (default: yolo-cage@localhost)
-  CLAUDE_OAUTH   Claude OAuth token for authentication
-  PROXY_BYPASS   Additional domains to bypass proxy (comma-separated)
+  GIT_NAME            Git author name (default: yolo-cage)
+  GIT_EMAIL           Git author email (default: yolo-cage@localhost)
+  CLAUDE_OAUTH        Claude OAuth token for authentication
+  PROXY_BYPASS        Additional domains to bypass proxy (comma-separated)
+  POD_MEMORY_LIMIT    Pod memory limit (default: 4Gi)
+  POD_MEMORY_REQUEST  Pod memory request (default: 1Gi)
+  POD_CPU_LIMIT       Pod CPU limit (default: 4)
+  POD_CPU_REQUEST     Pod CPU request (default: 500m)
 EOF
     exit 1
 }
@@ -96,6 +100,10 @@ validate_config() {
     # Set defaults
     GIT_NAME="${GIT_NAME:-yolo-cage}"
     GIT_EMAIL="${GIT_EMAIL:-yolo-cage@localhost}"
+    POD_MEMORY_LIMIT="${POD_MEMORY_LIMIT:-4Gi}"
+    POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-1Gi}"
+    POD_CPU_LIMIT="${POD_CPU_LIMIT:-4}"
+    POD_CPU_REQUEST="${POD_CPU_REQUEST:-500m}"
 
     if [[ $errors -gt 0 ]]; then
         echo ""
@@ -120,6 +128,7 @@ cmd_validate() {
     if [[ -n "${PROXY_BYPASS:-}" ]]; then
         echo "Proxy bypass: ${PROXY_BYPASS}"
     fi
+    echo "Pod resources: ${POD_MEMORY_REQUEST}/${POD_MEMORY_LIMIT} memory, ${POD_CPU_REQUEST}/${POD_CPU_LIMIT} CPU"
 }
 
 cmd_apply() {
@@ -175,6 +184,10 @@ data:
   YOLO_CAGE_VERSION: "0.2.0"
   PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
   COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
+  POD_MEMORY_LIMIT: "${POD_MEMORY_LIMIT}"
+  POD_MEMORY_REQUEST: "${POD_MEMORY_REQUEST}"
+  POD_CPU_LIMIT: "${POD_CPU_LIMIT}"
+  POD_CPU_REQUEST: "${POD_CPU_REQUEST}"
 EOF
     log_success "dispatcher-config ConfigMap updated"
 

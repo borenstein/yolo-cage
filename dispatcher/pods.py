@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 NAMESPACE = "yolo-cage"
 WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", "/workspaces")
 PROXY_BYPASS = os.environ.get("PROXY_BYPASS", ".anthropic.com,.claude.com")
+POD_MEMORY_LIMIT = os.environ.get("POD_MEMORY_LIMIT", "4Gi")
+POD_MEMORY_REQUEST = os.environ.get("POD_MEMORY_REQUEST", "1Gi")
+POD_CPU_LIMIT = os.environ.get("POD_CPU_LIMIT", "4")
+POD_CPU_REQUEST = os.environ.get("POD_CPU_REQUEST", "500m")
 
 # Pod template bundled into image at build time
 TEMPLATE_PATH = Path("/app/pod-template.yaml")
@@ -46,6 +50,10 @@ def _load_pod_template(branch: str) -> dict:
     # Substitute variables
     substituted = template_text.replace("${BRANCH}", branch)
     substituted = substituted.replace("${PROXY_BYPASS}", PROXY_BYPASS)
+    substituted = substituted.replace("${POD_MEMORY_LIMIT}", POD_MEMORY_LIMIT)
+    substituted = substituted.replace("${POD_MEMORY_REQUEST}", POD_MEMORY_REQUEST)
+    substituted = substituted.replace("${POD_CPU_LIMIT}", POD_CPU_LIMIT)
+    substituted = substituted.replace("${POD_CPU_REQUEST}", POD_CPU_REQUEST)
 
     return yaml.safe_load(substituted)
 

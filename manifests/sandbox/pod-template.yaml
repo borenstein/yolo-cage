@@ -132,11 +132,11 @@ spec:
 
       resources:
         requests:
-          cpu: "500m"
-          memory: "1Gi"
+          cpu: "${POD_CPU_REQUEST}"
+          memory: "${POD_MEMORY_REQUEST}"
         limits:
-          cpu: "4"
-          memory: "4Gi"
+          cpu: "${POD_CPU_LIMIT}"
+          memory: "${POD_MEMORY_LIMIT}"
 
       volumeMounts:
         - name: workspaces

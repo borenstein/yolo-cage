@@ -60,8 +60,12 @@ GITHUB_PAT=ghp_your_token_here
 REPO_URL=https://github.com/your-org/your-repo.git
 GIT_NAME=yolo-cage
 GIT_EMAIL=yolo-cage@localhost
-# CLAUDE_OAUTH=your_oauth_token  # Optional: skip device login
-# PROXY_BYPASS=example.com       # Optional: additional domains to bypass proxy
+# CLAUDE_OAUTH=your_oauth_token    # Optional: skip device login
+# PROXY_BYPASS=example.com         # Optional: additional domains to bypass proxy
+# POD_MEMORY_LIMIT=4Gi             # Optional: pod memory limit
+# POD_MEMORY_REQUEST=1Gi           # Optional: pod memory request
+# POD_CPU_LIMIT=4                  # Optional: pod CPU limit
+# POD_CPU_REQUEST=500m             # Optional: pod CPU request
 ```
 
 ### Torture-Test It First
