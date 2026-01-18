@@ -1,0 +1,242 @@
+#!/bin/bash
+# yolo-cage-configure - Configure yolo-cage with user settings
+#
+# Reads configuration from ~/.yolo-cage/config.yaml and applies it to the cluster.
+#
+# Config file format (~/.yolo-cage/config.yaml):
+#   github_pat: ghp_xxxx                        # GitHub Personal Access Token
+#   repo_url: https://github.com/org/repo.git   # Repository to work on
+#   git_name: "Your Name"                       # Git author name
+#   git_email: "you@example.com"                # Git author email
+#   claude_oauth: "..."                         # Optional: Claude OAuth token
+#   proxy_bypass: "example.com,other.com"       # Optional: Additional proxy bypass domains
+#
+# Usage:
+#   yolo-cage-configure              # Apply config from ~/.yolo-cage/config.yaml
+#   yolo-cage-configure --validate   # Validate config without applying
+
+set -e
+
+NAMESPACE="${YOLO_CAGE_NAMESPACE:-yolo-cage}"
+CONFIG_DIR="${HOME}/.yolo-cage"
+CONFIG_FILE="${CONFIG_DIR}/config.yaml"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_step() {
+    echo -e "${YELLOW}→ $1${NC}"
+}
+
+log_success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}ERROR: $1${NC}" >&2
+}
+
+usage() {
+    cat <<EOF
+yolo-cage-configure - Configure yolo-cage with user settings
+
+Usage:
+  yolo-cage-configure              Apply config from ~/.yolo-cage/config.yaml
+  yolo-cage-configure --validate   Validate config without applying
+
+Config file: ~/.yolo-cage/config.yaml
+  Copy from config.yaml.example in the repo and edit with your credentials.
+
+Required fields:
+  github_pat   GitHub Personal Access Token (fine-grained or classic)
+  repo_url     Repository URL (https://github.com/org/repo.git)
+
+Optional fields:
+  git_name       Git author name (default: yolo-cage)
+  git_email      Git author email (default: yolo-cage@localhost)
+  claude_oauth   Claude OAuth token for authentication
+  proxy_bypass   Additional domains to bypass proxy (comma-separated)
+EOF
+    exit 1
+}
+
+parse_yaml() {
+    # Simple YAML parser (handles basic key: value format)
+    local key="$1"
+    local file="$2"
+    grep "^${key}:" "$file" 2>/dev/null | sed 's/^[^:]*: *//' | sed 's/^"//' | sed 's/"$//' | sed "s/^'//" | sed "s/'$//"
+}
+
+validate_config() {
+    local errors=0
+
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        log_error "Config file not found: ${CONFIG_FILE}"
+        echo ""
+        echo "Create it with:"
+        echo "  mkdir -p ~/.yolo-cage"
+        echo "  cp /home/vagrant/yolo-cage/config.yaml.example ~/.yolo-cage/config.yaml"
+        echo "  # Edit with your credentials"
+        exit 1
+    fi
+
+    # Parse config
+    GITHUB_PAT=$(parse_yaml "github_pat" "${CONFIG_FILE}")
+    REPO_URL=$(parse_yaml "repo_url" "${CONFIG_FILE}")
+    GIT_NAME=$(parse_yaml "git_name" "${CONFIG_FILE}")
+    GIT_EMAIL=$(parse_yaml "git_email" "${CONFIG_FILE}")
+    CLAUDE_OAUTH=$(parse_yaml "claude_oauth" "${CONFIG_FILE}")
+    PROXY_BYPASS=$(parse_yaml "proxy_bypass" "${CONFIG_FILE}")
+
+    # Validate required fields
+    if [[ -z "${GITHUB_PAT}" || "${GITHUB_PAT}" == "ghp_REPLACE_WITH_YOUR_TOKEN" ]]; then
+        log_error "github_pat is required"
+        errors=$((errors + 1))
+    fi
+
+    if [[ -z "${REPO_URL}" || "${REPO_URL}" == *"your-org"* ]]; then
+        log_error "repo_url is required"
+        errors=$((errors + 1))
+    fi
+
+    # Set defaults
+    GIT_NAME="${GIT_NAME:-yolo-cage}"
+    GIT_EMAIL="${GIT_EMAIL:-yolo-cage@localhost}"
+
+    if [[ $errors -gt 0 ]]; then
+        echo ""
+        echo "Fix the errors in ${CONFIG_FILE} and try again."
+        exit 1
+    fi
+
+    return 0
+}
+
+cmd_validate() {
+    echo "Validating config..."
+    validate_config
+    log_success "Config is valid"
+    echo ""
+    echo "Repository: ${REPO_URL}"
+    echo "Git identity: ${GIT_NAME} <${GIT_EMAIL}>"
+    echo "GitHub PAT: ${GITHUB_PAT:0:10}..."
+    if [[ -n "${CLAUDE_OAUTH}" ]]; then
+        echo "Claude OAuth: configured"
+    fi
+    if [[ -n "${PROXY_BYPASS}" ]]; then
+        echo "Proxy bypass: ${PROXY_BYPASS}"
+    fi
+}
+
+cmd_apply() {
+    echo "Applying yolo-cage configuration..."
+    echo ""
+
+    validate_config
+
+    # Step 1: Create/update github-pat secret
+    log_step "Creating github-pat secret..."
+    kubectl delete secret github-pat -n "${NAMESPACE}" --ignore-not-found
+    kubectl create secret generic github-pat \
+        -n "${NAMESPACE}" \
+        --from-literal=GITHUB_PAT="${GITHUB_PAT}"
+    log_success "github-pat secret created"
+
+    # Step 2: Update dispatcher-config ConfigMap
+    log_step "Updating dispatcher-config ConfigMap..."
+
+    # Build the ConfigMap data
+    local cm_data="WORKSPACE_ROOT: \"/workspaces\""
+    cm_data="${cm_data}
+REPO_URL: \"${REPO_URL}\""
+    cm_data="${cm_data}
+GIT_USER_NAME: \"${GIT_NAME}\""
+    cm_data="${cm_data}
+GIT_USER_EMAIL: \"${GIT_EMAIL}\""
+    cm_data="${cm_data}
+YOLO_CAGE_VERSION: \"0.2.0\""
+    cm_data="${cm_data}
+PRE_PUSH_HOOKS: '[\"trufflehog git file://. --since-commit HEAD~10 --fail --no-update\"]'"
+    cm_data="${cm_data}
+COMMIT_FOOTER: \"Built autonomously using yolo-cage v0.2.0\""
+
+    if [[ -n "${PROXY_BYPASS}" ]]; then
+        cm_data="${cm_data}
+PROXY_BYPASS: \"${PROXY_BYPASS}\""
+    fi
+
+    # Apply the ConfigMap
+    cat <<EOF | kubectl apply -n "${NAMESPACE}" -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dispatcher-config
+  labels:
+    app: git-dispatcher
+data:
+  WORKSPACE_ROOT: "/workspaces"
+  REPO_URL: "${REPO_URL}"
+  GIT_USER_NAME: "${GIT_NAME}"
+  GIT_USER_EMAIL: "${GIT_EMAIL}"
+  YOLO_CAGE_VERSION: "0.2.0"
+  PRE_PUSH_HOOKS: '["trufflehog git file://. --since-commit HEAD~10 --fail --no-update"]'
+  COMMIT_FOOTER: "Built autonomously using yolo-cage v0.2.0"
+EOF
+    log_success "dispatcher-config ConfigMap updated"
+
+    # Step 3: Create egress-policy ConfigMap if proxy_bypass is set
+    if [[ -n "${PROXY_BYPASS}" ]]; then
+        log_step "Updating egress-policy ConfigMap..."
+        cat <<EOF | kubectl apply -n "${NAMESPACE}" -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-policy
+data:
+  PROXY_BYPASS: "${PROXY_BYPASS}"
+EOF
+        log_success "egress-policy ConfigMap updated"
+    fi
+
+    # Step 4: Create Claude credentials secret if provided
+    if [[ -n "${CLAUDE_OAUTH}" ]]; then
+        log_step "Creating yolo-cage-credentials secret..."
+        kubectl delete secret yolo-cage-credentials -n "${NAMESPACE}" --ignore-not-found
+        kubectl create secret generic yolo-cage-credentials \
+            -n "${NAMESPACE}" \
+            --from-literal=CLAUDE_OAUTH="${CLAUDE_OAUTH}"
+        log_success "yolo-cage-credentials secret created"
+    fi
+
+    # Step 5: Restart dispatcher to pick up new config
+    log_step "Restarting dispatcher..."
+    kubectl rollout restart deployment/git-dispatcher -n "${NAMESPACE}"
+    kubectl rollout status deployment/git-dispatcher -n "${NAMESPACE}" --timeout=60s
+    log_success "Dispatcher restarted"
+
+    echo ""
+    log_success "Configuration applied successfully!"
+    echo ""
+    echo "You can now create pods with:"
+    echo "  yolo-cage create <branch-name>"
+}
+
+# Main
+case "${1:-}" in
+    --validate)
+        cmd_validate
+        ;;
+    --help|-h|help)
+        usage
+        ;;
+    "")
+        cmd_apply
+        ;;
+    *)
+        echo "Unknown option: $1"
+        usage
+        ;;
+esac

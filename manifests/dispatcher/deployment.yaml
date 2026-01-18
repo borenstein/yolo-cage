@@ -16,6 +16,7 @@ spec:
       labels:
         app: git-dispatcher
     spec:
+      serviceAccountName: dispatcher
       containers:
         - name: dispatcher
           image: localhost:32000/git-dispatcher:latest

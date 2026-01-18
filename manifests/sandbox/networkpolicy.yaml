@@ -64,7 +64,8 @@ spec:
           port: 443
 
 ---
-# Git dispatcher: can reach GitHub over HTTPS
+# Git dispatcher: can reach GitHub, Kubernetes API, and internal services
+# The dispatcher is a trusted component that manages pod lifecycle
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -77,17 +78,35 @@ spec:
     - Egress
   egress:
     # DNS
-    - to: []
-      ports:
+    - ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
 
-    # GitHub (HTTPS) - for git operations
-    # Note: In production, you may want to restrict this to GitHub IPs
-    - to: []
+    # Kubernetes API - service CIDR (10.152.183.0/24) and host network
+    # The API server runs on the host, accessed via kubernetes.default.svc
+    # which DNATs to the host IP on port 16443
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
       ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 16443
+
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 16443
+
+    # GitHub (HTTPS) - for git operations
+    - ports:
         - protocol: TCP
           port: 443
 

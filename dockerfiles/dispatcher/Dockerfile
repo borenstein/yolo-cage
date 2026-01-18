@@ -36,6 +36,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy dispatcher package
 COPY dispatcher/ ./dispatcher/
 
+# Copy pod template for /pods API
+COPY manifests/sandbox/pod-template.yaml ./pod-template.yaml
+
 # Create workspace mount point
 RUN mkdir -p /workspaces && chown dispatcher:dispatcher /workspaces
 
