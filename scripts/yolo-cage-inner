@@ -1,0 +1,115 @@
+#!/bin/bash
+# yolo-cage-inner - Pod operations CLI (runs inside VM)
+#
+# This script is called by the host CLI via vagrant ssh -c
+#
+# Usage:
+#   yolo-cage-inner create <branch>
+#   yolo-cage-inner list
+#   yolo-cage-inner attach <branch>
+#   yolo-cage-inner delete <branch> [--clean]
+#   yolo-cage-inner logs <branch>
+
+set -e
+
+NAMESPACE="yolo-cage"
+
+# Get dispatcher URL via kubectl (single-node cluster, ClusterIP is reachable)
+dispatcher_url() {
+    local ip
+    ip=$(kubectl get svc -n ${NAMESPACE} git-dispatcher -o jsonpath='{.spec.clusterIP}')
+    echo "http://${ip}:8080"
+}
+
+pod_name() {
+    local branch="$1"
+    echo "yolo-cage-$(echo "$branch" | tr '[:upper:]' '[:lower:]' | tr '/_' '-')"
+}
+
+cmd_create() {
+    local branch="$1"
+    [[ -z "$branch" ]] && { echo "Usage: yolo-cage-inner create <branch>"; exit 1; }
+
+    local pod=$(pod_name "$branch")
+    echo "Creating pod ${pod} for branch: ${branch}"
+
+    local url=$(dispatcher_url)
+    local response=$(curl -s -X POST "${url}/pods" \
+        -H "Content-Type: application/json" \
+        -d "{\"branch\": \"${branch}\"}")
+
+    echo "$response" | jq -r '.message // .status'
+
+    # Wait for pod if it was created
+    if echo "$response" | jq -e '.status == "Pending"' > /dev/null; then
+        echo "Waiting for pod to be ready..."
+        kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=120s
+        echo ""
+        echo "Pod ready. Run: yolo-cage-inner attach ${branch}"
+    fi
+}
+
+cmd_list() {
+    local url=$(dispatcher_url)
+    curl -s "${url}/pods" | jq -r '
+        .pods |
+        ["NAME", "BRANCH", "STATUS", "IP"],
+        (.[] | [.name, .branch, .status, (.ip // "-")]) |
+        @tsv' | column -t
+}
+
+cmd_attach() {
+    local branch="$1"
+    [[ -z "$branch" ]] && { echo "Usage: yolo-cage-inner attach <branch>"; exit 1; }
+
+    local pod=$(pod_name "$branch")
+    echo "Attaching to ${pod}... (Ctrl+B,D to detach)"
+    kubectl exec -it -n ${NAMESPACE} ${pod} -- \
+        bash -c 'cd /home/dev/workspace && exec tmux new-session -A -s claude "claude --dangerously-skip-permissions"'
+}
+
+cmd_delete() {
+    local branch=""
+    local clean=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --clean) clean=true; shift ;;
+            *) branch="$1"; shift ;;
+        esac
+    done
+
+    [[ -z "$branch" ]] && { echo "Usage: yolo-cage-inner delete <branch> [--clean]"; exit 1; }
+
+    local url=$(dispatcher_url)
+    local param=""
+    [[ "$clean" == "true" ]] && param="?clean=true"
+
+    curl -s -X DELETE "${url}/pods/${branch}${param}" | jq -r '.status // .'
+}
+
+cmd_logs() {
+    local branch="$1"
+    [[ -z "$branch" ]] && { echo "Usage: yolo-cage-inner logs <branch>"; exit 1; }
+
+    kubectl logs -n ${NAMESPACE} $(pod_name "$branch") -f
+}
+
+case "${1:-}" in
+    create) shift; cmd_create "$@" ;;
+    list|ls) cmd_list ;;
+    attach) shift; cmd_attach "$@" ;;
+    delete|rm) shift; cmd_delete "$@" ;;
+    logs) shift; cmd_logs "$@" ;;
+    *)
+        echo "yolo-cage-inner - Pod operations (runs inside VM)"
+        echo ""
+        echo "Usage:"
+        echo "  yolo-cage-inner create <branch>        Create pod"
+        echo "  yolo-cage-inner list                   List pods"
+        echo "  yolo-cage-inner attach <branch>        Attach to pod"
+        echo "  yolo-cage-inner delete <branch>        Delete pod"
+        echo "  yolo-cage-inner logs <branch>          Tail logs"
+        exit 1
+        ;;
+esac

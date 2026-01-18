@@ -5,21 +5,38 @@ Run Claude Code in a sandboxed Kubernetes environment with git branch isolation.
 ## Quick Start
 
 ```bash
-vagrant up                    # Build the VM
-vagrant ssh                   # Connect to VM
-cp config.yaml.example ~/.yolo-cage/config.yaml
-# Edit config.yaml with your credentials
-yolo-cage-configure           # Apply configuration
+# One-time setup
+yolo-cage build --interactive --up
+
+# Daily use
 yolo-cage create my-branch    # Create a sandbox
 yolo-cage attach my-branch    # Connect to it
+yolo-cage list                # List all sandboxes
+yolo-cage delete my-branch    # Delete a sandbox
+yolo-cage down                # Stop the VM
 ```
 
 ## Architecture
 
+- **Host CLI** (`yolo-cage`): Runs on your machine, manages VM and delegates to inner CLI
+- **Inner CLI** (`yolo-cage-inner`): Runs inside VM, manages pods
 - **Vagrant VM**: Self-contained MicroK8s cluster
 - **Dispatcher**: Manages git operations and pod lifecycle
 - **Sandbox pods**: Isolated environments per branch
 - **Egress proxy**: Filters outbound traffic
+
+## Configuration
+
+Create `~/.yolo-cage/config.env` with your credentials (or use `--interactive`):
+
+```bash
+GITHUB_PAT=ghp_your_token_here
+REPO_URL=https://github.com/your-org/your-repo.git
+GIT_NAME=yolo-cage
+GIT_EMAIL=yolo-cage@localhost
+# CLAUDE_OAUTH=your_oauth_token  # Optional
+# PROXY_BYPASS=example.com       # Optional
+```
 
 ## Development
 
@@ -31,12 +48,18 @@ yolo-cage attach my-branch    # Connect to it
 ### Testing changes
 
 ```bash
-vagrant destroy -f && vagrant up   # Full rebuild
+# Full rebuild from repo root
+./scripts/yolo-cage rebuild
+
+# Or manual testing
+vagrant destroy -f && vagrant up
 vagrant ssh
+cp /home/vagrant/yolo-cage/config.env.example ~/.yolo-cage/config.env
+# Edit config.env with your credentials
 yolo-cage-configure
-yolo-cage create test-branch
-yolo-cage list
-yolo-cage delete test-branch
+yolo-cage-inner create test-branch
+yolo-cage-inner list
+yolo-cage-inner delete test-branch
 ```
 
 ### CI Requirements

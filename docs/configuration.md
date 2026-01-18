@@ -1,8 +1,28 @@
 # Configuration Reference
 
-This document covers all configuration options for yolo-cage. Configuration is done by editing YAML files directly in the `manifests/` directory.
+This document covers all configuration options for yolo-cage.
 
-## Configuration Files
+## Basic Configuration
+
+Most users only need `~/.yolo-cage/config.env`:
+
+```bash
+# Required
+GITHUB_PAT=ghp_your_token_here
+REPO_URL=https://github.com/your-org/your-repo.git
+
+# Optional
+GIT_NAME=yolo-cage
+GIT_EMAIL=yolo-cage@localhost
+CLAUDE_OAUTH=your_oauth_token
+PROXY_BYPASS=example.com,internal.corp
+```
+
+The CLI automatically syncs this to the VM and applies it to the cluster.
+
+## Advanced Configuration
+
+For advanced customization, edit the Kubernetes manifests inside the VM. SSH into the VM with `vagrant ssh`, then edit files in `/home/vagrant/yolo-cage/manifests/`.
 
 | File | Purpose |
 |------|---------|
@@ -10,6 +30,14 @@ This document covers all configuration options for yolo-cage. Configuration is d
 | `manifests/proxy/configmap.yaml` | Proxy bypass, blocked domains, GitHub API restrictions |
 | `manifests/sandbox/configmap.yaml` | Custom init scripts, SSH known hosts |
 | `manifests/sandbox/agent-prompt.yaml` | First-turn prompt, agent instructions |
+
+After editing manifests, apply changes:
+
+```bash
+vagrant ssh
+kubectl apply -f /home/vagrant/yolo-cage/manifests/dispatcher/configmap.yaml
+kubectl rollout restart deployment/git-dispatcher -n yolo-cage
+```
 
 ---
 

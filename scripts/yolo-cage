@@ -1,113 +1,525 @@
 #!/bin/bash
-# yolo-cage CLI
+# yolo-cage - Host CLI for managing sandboxed Claude Code agents
+#
+# This script runs on the user's host machine and manages the VM lifecycle,
+# delegating pod operations to yolo-cage-inner inside the VM.
 #
 # Usage:
+#   yolo-cage build [--config-file FILE | --interactive] [--up]
+#   yolo-cage rebuild
+#   yolo-cage up [--ram SIZE]
+#   yolo-cage down
+#   yolo-cage destroy
 #   yolo-cage create <branch>
-#   yolo-cage list
 #   yolo-cage attach <branch>
+#   yolo-cage list
 #   yolo-cage delete <branch> [--clean]
 #   yolo-cage logs <branch>
 
-set -e
+set -euo pipefail
 
-NAMESPACE="yolo-cage"
+YOLO_CAGE_HOME="${YOLO_CAGE_HOME:-$HOME/.yolo-cage}"
+YOLO_CAGE_REPO="https://github.com/borenstein/yolo-cage.git"
 
-# Get dispatcher URL via kubectl (single-node cluster, ClusterIP is reachable)
-dispatcher_url() {
-    local ip
-    ip=$(kubectl get svc -n ${NAMESPACE} git-dispatcher -o jsonpath='{.spec.clusterIP}')
-    echo "http://${ip}:8080"
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_step() {
+    echo -e "${YELLOW}-> $1${NC}"
 }
 
-pod_name() {
-    local branch="$1"
-    echo "yolo-cage-$(echo "$branch" | tr '[:upper:]' '[:lower:]' | tr '/_' '-')"
+log_success() {
+    echo -e "${GREEN}OK $1${NC}"
 }
 
-cmd_create() {
-    local branch="$1"
-    [[ -z "$branch" ]] && { echo "Usage: yolo-cage create <branch>"; exit 1; }
+log_error() {
+    echo -e "${RED}ERROR: $1${NC}" >&2
+}
 
-    local pod=$(pod_name "$branch")
-    echo "Creating pod ${pod} for branch: ${branch}"
+die() {
+    log_error "$1"
+    exit 1
+}
 
-    local url=$(dispatcher_url)
-    local response=$(curl -s -X POST "${url}/pods" \
-        -H "Content-Type: application/json" \
-        -d "{\"branch\": \"${branch}\"}")
+# Check if running from within the repo (development mode)
+detect_repo_dir() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local repo_dir
+    repo_dir="$(cd "${script_dir}/.." && pwd)"
 
-    echo "$response" | jq -r '.message // .status'
-
-    # Wait for pod if it was created
-    if echo "$response" | jq -e '.status == "Pending"' > /dev/null; then
-        echo "Waiting for pod to be ready..."
-        kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=120s
+    if [[ -f "${repo_dir}/Vagrantfile" ]]; then
+        echo "${repo_dir}"
+    elif [[ -d "${YOLO_CAGE_HOME}/repo" ]]; then
+        echo "${YOLO_CAGE_HOME}/repo"
+    else
         echo ""
-        echo "Pod ready. Run: yolo-cage attach ${branch}"
     fi
 }
 
-cmd_list() {
-    local url=$(dispatcher_url)
-    curl -s "${url}/pods" | jq -r '
-        .pods |
-        ["NAME", "BRANCH", "STATUS", "IP"],
-        (.[] | [.name, .branch, .status, (.ip // "-")]) |
-        @tsv' | column -t
+check_prerequisites() {
+    local missing=()
+
+    if ! command -v vagrant &>/dev/null; then
+        missing+=("vagrant")
+    fi
+
+    if ! command -v git &>/dev/null; then
+        missing+=("git")
+    fi
+
+    # Check for either libvirt or VirtualBox
+    if command -v vagrant &>/dev/null; then
+        if ! vagrant plugin list 2>/dev/null | grep -q vagrant-libvirt; then
+            if ! command -v VBoxManage &>/dev/null; then
+                missing+=("vagrant-libvirt plugin OR VirtualBox")
+            fi
+        fi
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Missing prerequisites:"
+        for dep in "${missing[@]}"; do
+            echo "  - $dep"
+        done
+        echo ""
+        echo "Install with:"
+        echo "  Ubuntu/Debian: sudo apt install vagrant vagrant-libvirt"
+        echo "  Fedora: sudo dnf install vagrant vagrant-libvirt"
+        echo "  macOS: brew install vagrant && vagrant plugin install vagrant-libvirt"
+        exit 1
+    fi
 }
 
-cmd_attach() {
-    local branch="$1"
-    [[ -z "$branch" ]] && { echo "Usage: yolo-cage attach <branch>"; exit 1; }
+ensure_repo() {
+    local repo_dir
+    repo_dir=$(detect_repo_dir)
 
-    local pod=$(pod_name "$branch")
-    echo "Attaching to ${pod}... (Ctrl+B,D to detach)"
-    kubectl exec -it -n ${NAMESPACE} ${pod} -- \
-        bash -c 'cd /home/dev/workspace && exec tmux new-session -A -s claude "claude --dangerously-skip-permissions"'
+    if [[ -z "$repo_dir" ]]; then
+        die "yolo-cage repository not found. Run 'yolo-cage build' first."
+    fi
+
+    echo "$repo_dir"
 }
 
-cmd_delete() {
-    local branch=""
-    local clean=false
+ensure_vm_running() {
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    cd "$repo_dir"
+    local status
+    status=$(vagrant status --machine-readable 2>/dev/null | grep ",state," | cut -d',' -f4 || echo "unknown")
+
+    if [[ "$status" != "running" ]]; then
+        die "VM is not running. Start with 'yolo-cage up'."
+    fi
+}
+
+prompt_config() {
+    mkdir -p "${YOLO_CAGE_HOME}"
+
+    echo "yolo-cage configuration"
+    echo ""
+
+    read -p "GitHub PAT: " github_pat
+    [[ -z "$github_pat" ]] && die "GitHub PAT is required"
+
+    read -p "Repository URL: " repo_url
+    [[ -z "$repo_url" ]] && die "Repository URL is required"
+
+    read -p "Git name [yolo-cage]: " git_name
+    git_name="${git_name:-yolo-cage}"
+
+    read -p "Git email [yolo-cage@localhost]: " git_email
+    git_email="${git_email:-yolo-cage@localhost}"
+
+    read -p "Claude OAuth token (optional, press Enter to skip): " claude_oauth
+
+    read -p "Proxy bypass domains (optional, comma-separated): " proxy_bypass
+
+    cat > "${YOLO_CAGE_HOME}/config.env" <<EOF
+# yolo-cage configuration
+# Generated on $(date)
+
+# Required
+GITHUB_PAT=${github_pat}
+REPO_URL=${repo_url}
+
+# Git identity
+GIT_NAME=${git_name}
+GIT_EMAIL=${git_email}
+EOF
+
+    if [[ -n "$claude_oauth" ]]; then
+        echo "CLAUDE_OAUTH=${claude_oauth}" >> "${YOLO_CAGE_HOME}/config.env"
+    fi
+
+    if [[ -n "$proxy_bypass" ]]; then
+        echo "PROXY_BYPASS=${proxy_bypass}" >> "${YOLO_CAGE_HOME}/config.env"
+    fi
+
+    log_success "Config written to ${YOLO_CAGE_HOME}/config.env"
+}
+
+sync_config_to_vm() {
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    if [[ ! -f "${YOLO_CAGE_HOME}/config.env" ]]; then
+        die "No config found. Run 'yolo-cage build' with --config-file or --interactive."
+    fi
+
+    cd "$repo_dir"
+
+    # Copy config.env to VM
+    log_step "Syncing configuration to VM..."
+    vagrant ssh -c "mkdir -p ~/.yolo-cage"
+    cat "${YOLO_CAGE_HOME}/config.env" | vagrant ssh -c "cat > ~/.yolo-cage/config.env"
+
+    # Run configure inside VM
+    log_step "Applying configuration..."
+    vagrant ssh -c "yolo-cage-configure"
+}
+
+cmd_build() {
+    local config_file="" interactive=false do_up=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --clean) clean=true; shift ;;
-            *) branch="$1"; shift ;;
+            --config-file)
+                [[ -z "${2:-}" ]] && die "--config-file requires a path"
+                config_file="$2"
+                shift 2
+                ;;
+            --interactive)
+                interactive=true
+                shift
+                ;;
+            --up)
+                do_up=true
+                shift
+                ;;
+            *)
+                die "Unknown option: $1"
+                ;;
         esac
     done
 
-    [[ -z "$branch" ]] && { echo "Usage: yolo-cage delete <branch> [--clean]"; exit 1; }
+    check_prerequisites
 
-    local url=$(dispatcher_url)
-    local param=""
-    [[ "$clean" == "true" ]] && param="?clean=true"
+    mkdir -p "${YOLO_CAGE_HOME}"
 
-    curl -s -X DELETE "${url}/pods/${branch}${param}" | jq -r '.status // .'
+    # Handle config
+    if [[ -n "$config_file" ]]; then
+        if [[ ! -f "$config_file" ]]; then
+            die "Config file not found: $config_file"
+        fi
+        cp "$config_file" "${YOLO_CAGE_HOME}/config.env"
+        log_success "Config copied to ${YOLO_CAGE_HOME}/config.env"
+    elif [[ "$interactive" == true ]]; then
+        prompt_config
+    else
+        die "Must specify --config-file or --interactive"
+    fi
+
+    # Clone repo if needed (only if not running from within repo)
+    local repo_dir
+    repo_dir=$(detect_repo_dir)
+
+    if [[ -z "$repo_dir" ]]; then
+        log_step "Cloning yolo-cage repository..."
+        git clone "$YOLO_CAGE_REPO" "${YOLO_CAGE_HOME}/repo"
+        repo_dir="${YOLO_CAGE_HOME}/repo"
+        log_success "Repository cloned"
+    fi
+
+    # Build VM
+    cd "$repo_dir"
+    log_step "Building VM (this may take a while)..."
+    vagrant up
+
+    # Sync config and apply
+    sync_config_to_vm
+
+    if [[ "$do_up" == false ]]; then
+        vagrant halt
+        echo ""
+        log_success "VM built successfully!"
+        echo "Run 'yolo-cage up' to start the VM."
+    else
+        echo ""
+        log_success "VM built and running!"
+        echo ""
+        echo "Create a sandbox:  yolo-cage create <branch>"
+        echo "List sandboxes:    yolo-cage list"
+        echo "Attach to sandbox: yolo-cage attach <branch>"
+    fi
+}
+
+cmd_rebuild() {
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    echo "This will destroy the current VM and rebuild it."
+    echo "Your config in ${YOLO_CAGE_HOME}/config.env will be preserved."
+    echo ""
+    read -p "Continue? [y/N] " confirm
+
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+
+    cd "$repo_dir"
+
+    log_step "Destroying existing VM..."
+    vagrant destroy -f || true
+
+    log_step "Rebuilding VM..."
+    vagrant up
+
+    # Sync config and apply
+    sync_config_to_vm
+
+    log_success "VM rebuilt successfully!"
+}
+
+cmd_up() {
+    local ram=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ram)
+                ram="$2"
+                shift 2
+                ;;
+            *)
+                die "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    cd "$repo_dir"
+
+    # TODO: Support --ram by modifying Vagrantfile or using environment variable
+    if [[ -n "$ram" ]]; then
+        echo "Note: --ram option is not yet implemented. Using default RAM."
+    fi
+
+    log_step "Starting VM..."
+    vagrant up
+
+    log_success "VM is running"
+    echo ""
+    echo "Create a sandbox:  yolo-cage create <branch>"
+    echo "List sandboxes:    yolo-cage list"
+}
+
+cmd_down() {
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    cd "$repo_dir"
+
+    log_step "Stopping VM..."
+    vagrant halt
+
+    log_success "VM stopped"
+}
+
+cmd_destroy() {
+    local repo_dir
+    repo_dir=$(ensure_repo)
+
+    echo "This will destroy the VM and all data inside it."
+    echo "Your config in ${YOLO_CAGE_HOME}/config.env will be preserved."
+    echo ""
+    read -p "Continue? [y/N] " confirm
+
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+
+    cd "$repo_dir"
+
+    log_step "Destroying VM..."
+    vagrant destroy -f
+
+    log_success "VM destroyed"
+}
+
+cmd_create() {
+    [[ -z "${1:-}" ]] && die "Usage: yolo-cage create <branch>"
+
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    vagrant ssh -c "yolo-cage-inner create '$1'"
+}
+
+cmd_attach() {
+    [[ -z "${1:-}" ]] && die "Usage: yolo-cage attach <branch>"
+
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    # Need interactive SSH for tmux
+    vagrant ssh -- -t "yolo-cage-inner attach '$1'"
+}
+
+cmd_list() {
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    vagrant ssh -c "yolo-cage-inner list"
+}
+
+cmd_delete() {
+    [[ -z "${1:-}" ]] && die "Usage: yolo-cage delete <branch> [--clean]"
+
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    # Pass all arguments to inner CLI
+    vagrant ssh -c "yolo-cage-inner delete $*"
 }
 
 cmd_logs() {
-    local branch="$1"
-    [[ -z "$branch" ]] && { echo "Usage: yolo-cage logs <branch>"; exit 1; }
+    [[ -z "${1:-}" ]] && die "Usage: yolo-cage logs <branch>"
 
-    kubectl logs -n ${NAMESPACE} $(pod_name "$branch") -f
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    vagrant ssh -c "yolo-cage-inner logs '$1'"
 }
 
-case "${1:-}" in
-    create) shift; cmd_create "$@" ;;
-    list|ls) cmd_list ;;
-    attach) shift; cmd_attach "$@" ;;
-    delete|rm) shift; cmd_delete "$@" ;;
-    logs) shift; cmd_logs "$@" ;;
-    *)
-        echo "yolo-cage - Sandboxed Claude Code agents"
+cmd_status() {
+    local repo_dir
+    repo_dir=$(detect_repo_dir)
+
+    if [[ -z "$repo_dir" ]]; then
+        echo "Status: Not built"
         echo ""
-        echo "Usage:"
-        echo "  yolo-cage create <branch>        Create pod"
-        echo "  yolo-cage list                   List pods"
-        echo "  yolo-cage attach <branch>        Attach to pod"
-        echo "  yolo-cage delete <branch>        Delete pod"
-        echo "  yolo-cage logs <branch>          Tail logs"
-        exit 1
-        ;;
-esac
+        echo "Run 'yolo-cage build --interactive --up' to get started."
+        exit 0
+    fi
+
+    cd "$repo_dir"
+
+    local vm_status
+    vm_status=$(vagrant status --machine-readable 2>/dev/null | grep ",state," | cut -d',' -f4 || echo "unknown")
+
+    echo "Repository: $repo_dir"
+    echo "Config: ${YOLO_CAGE_HOME}/config.env"
+    echo "VM status: $vm_status"
+
+    if [[ "$vm_status" == "running" ]]; then
+        echo ""
+        echo "Pods:"
+        vagrant ssh -c "yolo-cage-inner list" 2>/dev/null || echo "  (unable to list pods)"
+    fi
+}
+
+usage() {
+    cat <<EOF
+yolo-cage - Sandboxed Claude Code agents
+
+VM Lifecycle:
+  build [--config-file FILE | --interactive] [--up]
+                            Set up yolo-cage (clone repo, build VM)
+  rebuild                   Destroy and rebuild VM (preserves config)
+  up [--ram SIZE]           Start the VM
+  down                      Stop the VM
+  destroy                   Remove the VM entirely
+  status                    Show VM and pod status
+
+Pod Operations:
+  create <branch>           Create a sandbox pod for the branch
+  attach <branch>           Attach to a sandbox pod (tmux session)
+  list                      List all sandbox pods
+  delete <branch> [--clean] Delete a sandbox pod
+  logs <branch>             Tail pod logs
+
+Examples:
+  yolo-cage build --interactive --up
+  yolo-cage create feature-branch
+  yolo-cage attach feature-branch
+  yolo-cage list
+  yolo-cage delete feature-branch
+  yolo-cage down
+EOF
+}
+
+main() {
+    case "${1:-}" in
+        build)
+            shift
+            cmd_build "$@"
+            ;;
+        rebuild)
+            cmd_rebuild
+            ;;
+        up|start)
+            shift
+            cmd_up "$@"
+            ;;
+        down|stop|halt)
+            cmd_down
+            ;;
+        destroy)
+            cmd_destroy
+            ;;
+        create)
+            shift
+            cmd_create "$@"
+            ;;
+        attach)
+            shift
+            cmd_attach "$@"
+            ;;
+        list|ls)
+            cmd_list
+            ;;
+        delete|rm)
+            shift
+            cmd_delete "$@"
+            ;;
+        logs)
+            shift
+            cmd_logs "$@"
+            ;;
+        status)
+            cmd_status
+            ;;
+        --help|-h|help|"")
+            usage
+            ;;
+        *)
+            die "Unknown command: $1. Run 'yolo-cage --help' for usage."
+            ;;
+    esac
+}
+
+main "$@"

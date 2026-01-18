@@ -1,25 +1,25 @@
 #!/bin/bash
 # yolo-cage-configure - Configure yolo-cage with user settings
 #
-# Reads configuration from ~/.yolo-cage/config.yaml and applies it to the cluster.
+# Reads configuration from ~/.yolo-cage/config.env and applies it to the cluster.
 #
-# Config file format (~/.yolo-cage/config.yaml):
-#   github_pat: ghp_xxxx                        # GitHub Personal Access Token
-#   repo_url: https://github.com/org/repo.git   # Repository to work on
-#   git_name: "Your Name"                       # Git author name
-#   git_email: "you@example.com"                # Git author email
-#   claude_oauth: "..."                         # Optional: Claude OAuth token
-#   proxy_bypass: "example.com,other.com"       # Optional: Additional proxy bypass domains
+# Config file format (~/.yolo-cage/config.env):
+#   GITHUB_PAT=ghp_xxxx                        # GitHub Personal Access Token
+#   REPO_URL=https://github.com/org/repo.git   # Repository to work on
+#   GIT_NAME="Your Name"                       # Git author name
+#   GIT_EMAIL="you@example.com"                # Git author email
+#   CLAUDE_OAUTH="..."                         # Optional: Claude OAuth token
+#   PROXY_BYPASS="example.com,other.com"       # Optional: Additional proxy bypass domains
 #
 # Usage:
-#   yolo-cage-configure              # Apply config from ~/.yolo-cage/config.yaml
+#   yolo-cage-configure              # Apply config from ~/.yolo-cage/config.env
 #   yolo-cage-configure --validate   # Validate config without applying
 
 set -e
 
 NAMESPACE="${YOLO_CAGE_NAMESPACE:-yolo-cage}"
 CONFIG_DIR="${HOME}/.yolo-cage"
-CONFIG_FILE="${CONFIG_DIR}/config.yaml"
+CONFIG_FILE="${CONFIG_DIR}/config.env"
 
 # Colors for output
 RED='\033[0;31m'
@@ -44,30 +44,23 @@ usage() {
 yolo-cage-configure - Configure yolo-cage with user settings
 
 Usage:
-  yolo-cage-configure              Apply config from ~/.yolo-cage/config.yaml
+  yolo-cage-configure              Apply config from ~/.yolo-cage/config.env
   yolo-cage-configure --validate   Validate config without applying
 
-Config file: ~/.yolo-cage/config.yaml
-  Copy from config.yaml.example in the repo and edit with your credentials.
+Config file: ~/.yolo-cage/config.env
+  Copy from config.env.example in the repo and edit with your credentials.
 
 Required fields:
-  github_pat   GitHub Personal Access Token (fine-grained or classic)
-  repo_url     Repository URL (https://github.com/org/repo.git)
+  GITHUB_PAT   GitHub Personal Access Token (fine-grained or classic)
+  REPO_URL     Repository URL (https://github.com/org/repo.git)
 
 Optional fields:
-  git_name       Git author name (default: yolo-cage)
-  git_email      Git author email (default: yolo-cage@localhost)
-  claude_oauth   Claude OAuth token for authentication
-  proxy_bypass   Additional domains to bypass proxy (comma-separated)
+  GIT_NAME       Git author name (default: yolo-cage)
+  GIT_EMAIL      Git author email (default: yolo-cage@localhost)
+  CLAUDE_OAUTH   Claude OAuth token for authentication
+  PROXY_BYPASS   Additional domains to bypass proxy (comma-separated)
 EOF
     exit 1
-}
-
-parse_yaml() {
-    # Simple YAML parser (handles basic key: value format)
-    local key="$1"
-    local file="$2"
-    grep "^${key}:" "$file" 2>/dev/null | sed 's/^[^:]*: *//' | sed 's/^"//' | sed 's/"$//' | sed "s/^'//" | sed "s/'$//"
 }
 
 validate_config() {
@@ -78,27 +71,25 @@ validate_config() {
         echo ""
         echo "Create it with:"
         echo "  mkdir -p ~/.yolo-cage"
-        echo "  cp /home/vagrant/yolo-cage/config.yaml.example ~/.yolo-cage/config.yaml"
+        echo "  cp /home/vagrant/yolo-cage/config.env.example ~/.yolo-cage/config.env"
         echo "  # Edit with your credentials"
         exit 1
     fi
 
-    # Parse config
-    GITHUB_PAT=$(parse_yaml "github_pat" "${CONFIG_FILE}")
-    REPO_URL=$(parse_yaml "repo_url" "${CONFIG_FILE}")
-    GIT_NAME=$(parse_yaml "git_name" "${CONFIG_FILE}")
-    GIT_EMAIL=$(parse_yaml "git_email" "${CONFIG_FILE}")
-    CLAUDE_OAUTH=$(parse_yaml "claude_oauth" "${CONFIG_FILE}")
-    PROXY_BYPASS=$(parse_yaml "proxy_bypass" "${CONFIG_FILE}")
+    # Source the config file (key=value format)
+    set -a  # Export all variables
+    # shellcheck source=/dev/null
+    source "${CONFIG_FILE}"
+    set +a
 
     # Validate required fields
-    if [[ -z "${GITHUB_PAT}" || "${GITHUB_PAT}" == "ghp_REPLACE_WITH_YOUR_TOKEN" ]]; then
-        log_error "github_pat is required"
+    if [[ -z "${GITHUB_PAT:-}" || "${GITHUB_PAT}" == "ghp_your_token_here" ]]; then
+        log_error "GITHUB_PAT is required"
         errors=$((errors + 1))
     fi
 
-    if [[ -z "${REPO_URL}" || "${REPO_URL}" == *"your-org"* ]]; then
-        log_error "repo_url is required"
+    if [[ -z "${REPO_URL:-}" || "${REPO_URL}" == *"your-org"* ]]; then
+        log_error "REPO_URL is required"
         errors=$((errors + 1))
     fi
 
@@ -123,10 +114,10 @@ cmd_validate() {
     echo "Repository: ${REPO_URL}"
     echo "Git identity: ${GIT_NAME} <${GIT_EMAIL}>"
     echo "GitHub PAT: ${GITHUB_PAT:0:10}..."
-    if [[ -n "${CLAUDE_OAUTH}" ]]; then
+    if [[ -n "${CLAUDE_OAUTH:-}" ]]; then
         echo "Claude OAuth: configured"
     fi
-    if [[ -n "${PROXY_BYPASS}" ]]; then
+    if [[ -n "${PROXY_BYPASS:-}" ]]; then
         echo "Proxy bypass: ${PROXY_BYPASS}"
     fi
 }
@@ -163,7 +154,7 @@ PRE_PUSH_HOOKS: '[\"trufflehog git file://. --since-commit HEAD~10 --fail --no-u
     cm_data="${cm_data}
 COMMIT_FOOTER: \"Built autonomously using yolo-cage v0.2.0\""
 
-    if [[ -n "${PROXY_BYPASS}" ]]; then
+    if [[ -n "${PROXY_BYPASS:-}" ]]; then
         cm_data="${cm_data}
 PROXY_BYPASS: \"${PROXY_BYPASS}\""
     fi
@@ -188,7 +179,7 @@ EOF
     log_success "dispatcher-config ConfigMap updated"
 
     # Step 3: Create egress-policy ConfigMap if proxy_bypass is set
-    if [[ -n "${PROXY_BYPASS}" ]]; then
+    if [[ -n "${PROXY_BYPASS:-}" ]]; then
         log_step "Updating egress-policy ConfigMap..."
         cat <<EOF | kubectl apply -n "${NAMESPACE}" -f -
 apiVersion: v1
@@ -202,7 +193,7 @@ EOF
     fi
 
     # Step 4: Create Claude credentials secret if provided
-    if [[ -n "${CLAUDE_OAUTH}" ]]; then
+    if [[ -n "${CLAUDE_OAUTH:-}" ]]; then
         log_step "Creating yolo-cage-credentials secret..."
         kubectl delete secret yolo-cage-credentials -n "${NAMESPACE}" --ignore-not-found
         kubectl create secret generic yolo-cage-credentials \

@@ -23,14 +23,4 @@ Vagrant.configure("2") do |config|
 
   # Provision: run build script from within the synced repo
   config.vm.provision "shell", inline: "cd /home/vagrant/yolo-cage && ./scripts/build-release.sh"
-
-  config.vm.post_up_message = <<-MSG
-    yolo-cage VM ready.
-
-    vagrant ssh
-    cp /home/vagrant/yolo-cage/config.yaml.example ~/.yolo-cage/config.yaml
-    nano ~/.yolo-cage/config.yaml   # Add your GitHub PAT and repo URL
-    yolo-cage-configure
-    yolo-cage create my-branch
-  MSG
 end

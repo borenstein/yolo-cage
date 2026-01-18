@@ -4,7 +4,7 @@
 
 > **Disclaimer**: This reduces risk but does not eliminate it. Do not use with production secrets or credentials where exfiltration would be catastrophic. See the [license](#license) section below.
 
-A Kubernetes sandbox for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in YOLO mode (`--dangerously-skip-permissions`). Egress filtering blocks secret exfiltration. Git/GitHub controls enforce "agent proposes, human disposes":
+A sandboxed environment for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in YOLO mode (`--dangerously-skip-permissions`). Egress filtering blocks secret exfiltration. Git/GitHub controls enforce "agent proposes, human disposes":
 
 1. **Cannot exfiltrate secrets** - egress proxy scans all HTTP/HTTPS
 2. **Cannot modify code outside its branch** - git dispatcher enforces
@@ -12,17 +12,52 @@ A Kubernetes sandbox for running [Claude Code](https://docs.anthropic.com/en/doc
 
 ---
 
-## Get Started
+## Quick Start
 
-### Option A: Deploy and Get to Work
+### Prerequisites
 
-Ready to go? → **[Setup Guide](docs/setup.md)**
+- **Vagrant** with libvirt provider (Linux headless) or VirtualBox (macOS/Windows)
+- **8GB RAM, 4 CPUs** available for the VM
+- **GitHub PAT** with `repo` scope
+- **Claude account** (Pro, Team, or Enterprise)
 
-### Option B: Torture-Test It First
+### Install and Run
 
-Need to convince yourself (or your security team) it actually works?
+```bash
+# Clone and enter repo
+git clone https://github.com/borenstein/yolo-cage.git
+cd yolo-cage
 
-→ **[Security Audit Guide](docs/security-audit.md)** - Fork this repo, deploy yolo-cage against itself, run escape tests. Includes a prompt that asks an AI agent to try to break out of the cage defined by the repo it's reading.
+# One-time setup (interactive prompts for GitHub PAT, repo URL, etc.)
+./scripts/yolo-cage build --interactive --up
+
+# Or with a config file
+./scripts/yolo-cage build --config-file my-config.env --up
+```
+
+### Daily Use
+
+```bash
+yolo-cage create feature-branch   # Create a sandbox
+yolo-cage attach feature-branch   # Attach (Claude starts in tmux)
+yolo-cage list                    # List all sandboxes
+yolo-cage delete feature-branch   # Delete when done
+yolo-cage down                    # Stop the VM
+yolo-cage up                      # Start the VM again
+```
+
+### Config Format
+
+Create `~/.yolo-cage/config.env`:
+
+```bash
+GITHUB_PAT=ghp_your_token_here
+REPO_URL=https://github.com/your-org/your-repo.git
+GIT_NAME=yolo-cage
+GIT_EMAIL=yolo-cage@localhost
+# CLAUDE_OAUTH=your_oauth_token  # Optional: skip device login
+# PROXY_BYPASS=example.com       # Optional: additional domains to bypass proxy
+```
 
 ---
 
@@ -44,8 +79,8 @@ The agent is a **proposer**, not an executor. All the permission prompts that wo
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Kubernetes Cluster                                                   │
-│                                                                      │
+│ Vagrant VM (MicroK8s cluster)                                       │
+│                                                                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
 │  │ yolo-cage    │  │ yolo-cage    │  │ yolo-cage    │              │
 │  │ (feature-a)  │  │ (feature-b)  │  │ (bugfix-c)   │              │
@@ -70,14 +105,8 @@ The agent is a **proposer**, not an executor. All the permission prompts that wo
 │         ▼                                 ▼                         │
 │  ┌─────────────┐                 ┌─────────────────┐               │
 │  │   GitHub    │                 │  Egress Proxy   │               │
-│  │  (HTTPS)    │                 │  (HTTP/HTTPS)   │               │
-│  └─────────────┘                 └────────┬────────┘               │
-│                                           │                         │
-│                                           ▼                         │
-│                                  ┌─────────────────┐               │
-│                                  │   LLM-Guard     │               │
-│                                  │ (secret scan)   │               │
-│                                  └─────────────────┘               │
+│  │  (HTTPS)    │                 │  (mitmproxy)    │               │
+│  └─────────────┘                 └─────────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,30 +114,6 @@ The agent is a **proposer**, not an executor. All the permission prompts that wo
 - **State isolation**: Agents cannot interfere with each other's work
 - **Incorruptible identity**: Dispatcher identifies agents by pod IP
 - **Clean failure modes**: If one agent goes haywire, others are unaffected
-
-### Git Shim Architecture
-
-Claude Code uses git normally - all enforcement is transparent. A shim replaces `/usr/bin/git` and delegates to the dispatcher:
-
-```
-Agent runs: git commit -m "Add feature"
-     │
-     ▼
-Shim intercepts, POSTs to dispatcher
-     │
-     ▼
-Dispatcher enforces branch rules, runs TruffleHog, executes real git
-     │
-     ▼
-Output returned to agent
-```
-
-## Documentation
-
-- [Architecture](docs/architecture.md) - Design rationale, threat model, limitations
-- [Setup](docs/setup.md) - Prerequisites, step-by-step deployment
-- [Configuration](docs/configuration.md) - Egress policy, bypasses, hooks
-- [Security Audit](docs/security-audit.md) - Escape testing for enterprise audits
 
 ---
 
@@ -128,7 +133,6 @@ Output returned to agent
 **GitHub API:**
 - `PUT /repos/*/pulls/*/merge` - Cannot merge PRs
 - `DELETE /repos/*` - Cannot delete anything
-- `GET /repos/*/actions/secrets/*` - Cannot read GH secrets
 - Webhooks, branch protection modifications
 
 **Git Operations:**
@@ -139,14 +143,41 @@ Output returned to agent
 
 - **Pre-push hooks only**: TruffleHog runs before push, not on every commit
 - **Prompt injection**: The egress filter mitigates many attacks, but sophisticated encoding could bypass scanning
-- **Fail-closed**: If LLM-Guard is down, requests are blocked
 
-## Requirements
+---
 
-- Kubernetes cluster (developed on MicroK8s)
-- Container registry accessible from the cluster
-- Docker (for building images)
-- [Claude](https://claude.ai) account with OAuth credentials
+## CLI Reference
+
+### VM Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `build [--config-file FILE \| --interactive] [--up]` | Clone repo, write config, build VM, apply config |
+| `rebuild` | Destroy and rebuild VM (preserves config) |
+| `up` | Start VM |
+| `down` | Stop VM |
+| `destroy` | Remove VM entirely |
+| `status` | Show VM and pod status |
+
+### Pod Operations
+
+| Command | Description |
+|---------|-------------|
+| `create <branch>` | Create a sandbox pod for the branch |
+| `attach <branch>` | Attach to sandbox (tmux session with Claude) |
+| `list` | List all sandbox pods |
+| `delete <branch> [--clean]` | Delete a sandbox pod |
+| `logs <branch>` | Tail pod logs |
+
+---
+
+## Documentation
+
+- [Architecture](docs/architecture.md) - Design rationale, threat model, limitations
+- [Configuration](docs/configuration.md) - Egress policy, bypasses, hooks
+- [Security Audit](docs/security-audit.md) - Escape testing for enterprise audits
+
+---
 
 ## License
 
