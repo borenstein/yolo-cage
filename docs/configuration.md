@@ -324,17 +324,14 @@ resources:
 
 ## Secrets
 
-Create these secrets before deploying:
+The CLI handles secret creation automatically when you run `yolo-cage build`. The following secrets are created in the cluster:
 
-### GitHub PAT (Required)
+- **github-pat**: Your GitHub PAT (from `GITHUB_PAT` in config.env)
+- **yolo-cage-credentials**: Claude OAuth token (if `CLAUDE_OAUTH` is set)
 
-```bash
-kubectl create secret generic github-pat \
-  --namespace=yolo-cage \
-  --from-literal=GITHUB_PAT=ghp_your_token_here
-```
+### GitHub PAT Scopes
 
-The PAT needs these scopes:
+Your PAT needs these scopes:
 - `repo` - Full repository access
 - `read:org` - Read org membership (if using org repos)
 

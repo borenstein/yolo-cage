@@ -59,6 +59,12 @@ GIT_EMAIL=yolo-cage@localhost
 # PROXY_BYPASS=example.com       # Optional: additional domains to bypass proxy
 ```
 
+### Torture-Test It First
+
+Need to convince yourself (or your security team) it actually works?
+
+**[Security Audit Guide](docs/security-audit.md)** - Fork this repo, deploy yolo-cage against itself, run escape tests. Includes a prompt that asks an AI agent to try to break out of the cage defined by the repo it's reading.
+
 ---
 
 ## The Problem

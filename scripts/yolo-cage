@@ -461,14 +461,6 @@ Pod Operations:
   list                      List all sandbox pods
   delete <branch> [--clean] Delete a sandbox pod
   logs <branch>             Tail pod logs
-
-Examples:
-  yolo-cage build --interactive --up
-  yolo-cage create feature-branch
-  yolo-cage attach feature-branch
-  yolo-cage list
-  yolo-cage delete feature-branch
-  yolo-cage down
 EOF
 }
 
