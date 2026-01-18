@@ -16,6 +16,16 @@ Add a label to your PR to control the version bump:
 
 If no label is specified, `patch` is assumed.
 
+### Alpha Versioning (0.x.x)
+
+While yolo-cage is in alpha, semantic versioning is demoted by one level:
+
+- **Breaking changes** → `minor` (not `major`)
+- **Everything else** → `patch`
+- **No `major` bumps** until we're ready for 1.0
+
+This signals that the API is unstable and users should expect breaking changes in minor releases.
+
 ### Release Process
 
 1. Create a PR with your changes

@@ -175,7 +175,8 @@ The agent is a **proposer**, not an executor. All the permission prompts that wo
 | Command | Description |
 |---------|-------------|
 | `create <branch>` | Create a sandbox pod for the branch |
-| `attach <branch>` | Attach to sandbox (tmux session with Claude) |
+| `attach <branch>` | Attach to sandbox (Claude in tmux) |
+| `shell <branch>` | Attach to sandbox (bash in tmux) |
 | `list` | List all sandbox pods |
 | `delete <branch> [--clean]` | Delete a sandbox pod |
 | `logs <branch>` | Tail pod logs |

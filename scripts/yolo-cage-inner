@@ -45,7 +45,7 @@ cmd_create() {
         echo "Waiting for pod to be ready..."
         kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=120s
         echo ""
-        echo "Pod ready. Run: yolo-cage-inner attach ${branch}"
+        echo "Pod ready. Run: yolo-cage attach ${branch}"
     fi
 }
 
@@ -66,6 +66,16 @@ cmd_attach() {
     echo "Attaching to ${pod}... (Ctrl+B,D to detach)"
     kubectl exec -it -n ${NAMESPACE} ${pod} -- \
         bash -c 'cd /home/dev/workspace && exec tmux new-session -A -s claude "claude --dangerously-skip-permissions"'
+}
+
+cmd_shell() {
+    local branch="$1"
+    [[ -z "$branch" ]] && { echo "Usage: yolo-cage-inner shell <branch>"; exit 1; }
+
+    local pod=$(pod_name "$branch")
+    echo "Attaching shell to ${pod}... (Ctrl+B,D to detach)"
+    kubectl exec -it -n ${NAMESPACE} ${pod} -- \
+        bash -c 'cd /home/dev/workspace && exec tmux new-session -A -s shell'
 }
 
 cmd_delete() {
@@ -99,6 +109,7 @@ case "${1:-}" in
     create) shift; cmd_create "$@" ;;
     list|ls) cmd_list ;;
     attach) shift; cmd_attach "$@" ;;
+    shell|sh) shift; cmd_shell "$@" ;;
     delete|rm) shift; cmd_delete "$@" ;;
     logs) shift; cmd_logs "$@" ;;
     *)
@@ -107,7 +118,8 @@ case "${1:-}" in
         echo "Usage:"
         echo "  yolo-cage-inner create <branch>        Create pod"
         echo "  yolo-cage-inner list                   List pods"
-        echo "  yolo-cage-inner attach <branch>        Attach to pod"
+        echo "  yolo-cage-inner attach <branch>        Attach to pod (Claude)"
+        echo "  yolo-cage-inner shell <branch>         Attach to pod (bash)"
         echo "  yolo-cage-inner delete <branch>        Delete pod"
         echo "  yolo-cage-inner logs <branch>          Tail logs"
         exit 1

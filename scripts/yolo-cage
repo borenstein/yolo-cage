@@ -12,6 +12,7 @@
 #   yolo-cage destroy
 #   yolo-cage create <branch>
 #   yolo-cage attach <branch>
+#   yolo-cage shell <branch>
 #   yolo-cage list
 #   yolo-cage delete <branch> [--clean]
 #   yolo-cage logs <branch>
@@ -381,6 +382,19 @@ cmd_attach() {
     vagrant ssh -- -t "yolo-cage-inner attach '$1'"
 }
 
+cmd_shell() {
+    [[ -z "${1:-}" ]] && die "Usage: yolo-cage shell <branch>"
+
+    ensure_vm_running
+
+    local repo_dir
+    repo_dir=$(ensure_repo)
+    cd "$repo_dir"
+
+    # Need interactive SSH for tmux
+    vagrant ssh -- -t "yolo-cage-inner shell '$1'"
+}
+
 cmd_list() {
     ensure_vm_running
 
@@ -458,7 +472,8 @@ VM Lifecycle:
 
 Pod Operations:
   create <branch>           Create a sandbox pod for the branch
-  attach <branch>           Attach to a sandbox pod (tmux session)
+  attach <branch>           Attach to sandbox (Claude in tmux)
+  shell <branch>            Attach to sandbox (bash in tmux)
   list                      List all sandbox pods
   delete <branch> [--clean] Delete a sandbox pod
   logs <branch>             Tail pod logs
@@ -491,6 +506,10 @@ main() {
         attach)
             shift
             cmd_attach "$@"
+            ;;
+        shell|sh)
+            shift
+            cmd_shell "$@"
             ;;
         list|ls)
             cmd_list
