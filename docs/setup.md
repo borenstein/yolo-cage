@@ -31,14 +31,22 @@ brew install vagrant
 # Download VirtualBox from https://www.virtualbox.org/
 ```
 
+## Install
+
+Download the latest release:
+
+```bash
+curl -fsSL https://github.com/borenstein/yolo-cage/releases/latest/download/yolo-cage -o yolo-cage
+chmod +x yolo-cage
+sudo mv yolo-cage /usr/local/bin/
+```
+
 ## Quick Start
 
 ### Option A: Interactive Setup
 
 ```bash
-git clone https://github.com/borenstein/yolo-cage.git
-cd yolo-cage
-./scripts/yolo-cage build --interactive --up
+yolo-cage build --interactive --up
 ```
 
 You'll be prompted for:
@@ -64,9 +72,7 @@ GIT_EMAIL=yolo-cage@localhost
 Then build:
 
 ```bash
-git clone https://github.com/borenstein/yolo-cage.git
-cd yolo-cage
-./scripts/yolo-cage build --config-file my-config.env --up
+yolo-cage build --config-file my-config.env --up
 ```
 
 ## What Happens During Build

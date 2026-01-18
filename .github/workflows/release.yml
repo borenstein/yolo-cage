@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for tags
+
+      - name: Get merged PR labels
+        id: pr
+        uses: actions-ecosystem/action-get-merged-pull-request@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          LABELS="${{ steps.pr.outputs.labels }}"
+          if echo "$LABELS" | grep -q "major"; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q "minor"; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          else
+            echo "type=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get current version
+        id: current
+        run: |
+          # Get latest tag, default to v0.0.0 if none exists
+          LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Calculate next version
+        id: next
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          BUMP="${{ steps.bump.outputs.type }}"
+
+          # Strip 'v' prefix
+          VERSION="${CURRENT#v}"
+
+          # Parse semver
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEXT" >> $GITHUB_OUTPUT
+          echo "Next version: $NEXT (bump: $BUMP)"
+
+      - name: Create release archive
+        run: |
+          VERSION="${{ steps.next.outputs.version }}"
+
+          # Create standalone yolo-cage script with version
+          mkdir -p dist
+          sed "s/YOLO_CAGE_VERSION=\"dev\"/YOLO_CAGE_VERSION=\"$VERSION\"/" \
+            scripts/yolo-cage > dist/yolo-cage
+          chmod +x dist/yolo-cage
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.next.outputs.version }}
+          name: ${{ steps.next.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/yolo-cage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

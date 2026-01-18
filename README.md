@@ -21,18 +21,23 @@ A sandboxed environment for running [Claude Code](https://docs.anthropic.com/en/
 - **GitHub PAT** with `repo` scope
 - **Claude account** (Pro, Team, or Enterprise)
 
-### Install and Run
+### Install
 
 ```bash
-# Clone and enter repo
-git clone https://github.com/borenstein/yolo-cage.git
-cd yolo-cage
+# Download latest release
+curl -fsSL https://github.com/borenstein/yolo-cage/releases/latest/download/yolo-cage -o yolo-cage
+chmod +x yolo-cage
+sudo mv yolo-cage /usr/local/bin/
+```
 
+### Build the VM
+
+```bash
 # One-time setup (interactive prompts for GitHub PAT, repo URL, etc.)
-./scripts/yolo-cage build --interactive --up
+yolo-cage build --interactive --up
 
 # Or with a config file
-./scripts/yolo-cage build --config-file my-config.env --up
+yolo-cage build --config-file my-config.env --up
 ```
 
 ### Daily Use

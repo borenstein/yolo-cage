@@ -18,6 +18,7 @@
 
 set -euo pipefail
 
+YOLO_CAGE_VERSION="dev"
 YOLO_CAGE_HOME="${YOLO_CAGE_HOME:-$HOME/.yolo-cage}"
 YOLO_CAGE_REPO="https://github.com/borenstein/yolo-cage.git"
 
@@ -507,6 +508,9 @@ main() {
             ;;
         --help|-h|help|"")
             usage
+            ;;
+        --version|-v)
+            echo "yolo-cage $YOLO_CAGE_VERSION"
             ;;
         *)
             die "Unknown command: $1. Run 'yolo-cage --help' for usage."
