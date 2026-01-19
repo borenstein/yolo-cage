@@ -15,6 +15,23 @@ spec:
       labels:
         app: egress-proxy
     spec:
+      initContainers:
+        - name: setup-ca
+          image: busybox:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /proxy-ca-secret/* /mitmproxy-ca/
+              chmod 600 /mitmproxy-ca/mitmproxy-ca.pem
+              chmod 644 /mitmproxy-ca/mitmproxy-ca-cert.pem
+              chown -R 1000:1000 /mitmproxy-ca/
+          volumeMounts:
+            - name: proxy-ca-secret
+              mountPath: /proxy-ca-secret
+              readOnly: true
+            - name: mitmproxy-ca
+              mountPath: /mitmproxy-ca
       containers:
         - name: mitmproxy
           image: localhost:32000/egress-proxy:latest
@@ -44,8 +61,15 @@ spec:
           volumeMounts:
             - name: proxy-logs
               mountPath: /var/log/proxy
+            - name: mitmproxy-ca
+              mountPath: /home/mitmproxy/.mitmproxy
       volumes:
         - name: proxy-logs
+          emptyDir: {}
+        - name: proxy-ca-secret
+          secret:
+            secretName: proxy-ca-secret
+        - name: mitmproxy-ca
           emptyDir: {}
 ---
 apiVersion: v1

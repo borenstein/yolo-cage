@@ -95,6 +95,7 @@ $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/sandbox/pvc.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/sandbox/configmap.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/sandbox/networkpolicy.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/proxy/configmap.yaml"
+$KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/proxy/llm-guard.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/proxy/egress-proxy.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/dispatcher/service.yaml"
 $KUBECTL apply -n yolo-cage -f "${REPO_ROOT}/manifests/dispatcher/deployment.yaml"
@@ -114,18 +115,23 @@ CA_TEMP=$(mktemp -d)
 
 openssl genrsa -out "${CA_TEMP}/mitmproxy-ca.key" 2048
 openssl req -new -x509 -key "${CA_TEMP}/mitmproxy-ca.key" \
-    -out "${CA_TEMP}/mitmproxy-ca.pem" \
+    -out "${CA_TEMP}/mitmproxy-ca-cert.pem" \
     -days 3650 \
     -subj "/CN=yolo-cage proxy CA/O=yolo-cage"
 
+# mitmproxy expects cert+key combined in mitmproxy-ca.pem
+cat "${CA_TEMP}/mitmproxy-ca-cert.pem" "${CA_TEMP}/mitmproxy-ca.key" > "${CA_TEMP}/mitmproxy-ca.pem"
+
+# ConfigMap for clients (cert only)
 $KUBECTL create configmap proxy-ca \
     -n yolo-cage \
-    --from-file=mitmproxy-ca.pem="${CA_TEMP}/mitmproxy-ca.pem"
+    --from-file=mitmproxy-ca.pem="${CA_TEMP}/mitmproxy-ca-cert.pem"
 
+# Secret for proxy (combined cert+key and cert-only for mitmproxy)
 $KUBECTL create secret generic proxy-ca-secret \
     -n yolo-cage \
     --from-file=mitmproxy-ca.pem="${CA_TEMP}/mitmproxy-ca.pem" \
-    --from-file=mitmproxy-ca.key="${CA_TEMP}/mitmproxy-ca.key"
+    --from-file=mitmproxy-ca-cert.pem="${CA_TEMP}/mitmproxy-ca-cert.pem"
 
 rm -rf "${CA_TEMP}"
 

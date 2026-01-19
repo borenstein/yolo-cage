@@ -8,8 +8,23 @@ from .config import GIT_USER_NAME, GIT_USER_EMAIL, GITHUB_PAT
 from .models import GitResult
 
 
+def _safe_directory_env() -> dict:
+    """Get environment variables for safe directory access."""
+    env = os.environ.copy()
+    # Trust workspace directories regardless of ownership.
+    # Kubernetes creates subPath mount directories as root before the
+    # dispatcher (running as uid 1000) can clone into them.
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "safe.directory"
+    env["GIT_CONFIG_VALUE_0"] = "*"
+    return env
+
+
 def get_current_branch(cwd: str) -> Optional[str]:
     """Get the current branch in the given working directory."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -17,28 +32,29 @@ def get_current_branch(cwd: str) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            env=_safe_directory_env(),
         )
         if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
+            branch = result.stdout.strip()
+            # "HEAD" means detached HEAD state
+            return branch if branch != "HEAD" else None
+        else:
+            logger.warning(f"git rev-parse failed in {cwd}: {result.stderr.strip()}")
+    except FileNotFoundError:
+        logger.warning(f"Directory does not exist: {cwd}")
+    except Exception as e:
+        logger.warning(f"Failed to get branch in {cwd}: {e}")
     return None
 
 
 def _base_env() -> dict:
     """Get base environment variables for git execution."""
-    env = os.environ.copy()
+    env = _safe_directory_env()
     env["GIT_AUTHOR_NAME"] = GIT_USER_NAME
     env["GIT_AUTHOR_EMAIL"] = GIT_USER_EMAIL
     env["GIT_COMMITTER_NAME"] = GIT_USER_NAME
     env["GIT_COMMITTER_EMAIL"] = GIT_USER_EMAIL
     env["GIT_TERMINAL_PROMPT"] = "0"
-    # Trust workspace directories regardless of ownership.
-    # Kubernetes creates subPath mount directories as root before the
-    # dispatcher (running as uid 1000) can clone into them.
-    env["GIT_CONFIG_COUNT"] = "1"
-    env["GIT_CONFIG_KEY_0"] = "safe.directory"
-    env["GIT_CONFIG_VALUE_0"] = "*"
     return env
 
 

@@ -108,6 +108,11 @@ def check_push_allowed(
 
     # Must be on assigned branch
     current = get_current_branch(cwd)
+    if current is None:
+        return (
+            f"yolo-cage: could not determine current branch.\n"
+            f"Ensure you are in a git repository on branch '{assigned_branch}'.\n"
+        )
     if current != assigned_branch:
         return (
             f"yolo-cage: you can only push from your assigned branch "

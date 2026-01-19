@@ -173,14 +173,13 @@ class EgressProxy:
                 self._block(flow, b"Blocked: URL path contains potential secrets", "secrets_in_path", detected)
                 return
 
-        # Scan sensitive headers for secrets
-        sensitive_headers = ["authorization", "x-api-key", "api-key", "x-auth-token", "x-access-token"]
-        for header_name in sensitive_headers:
-            header_value = flow.request.headers.get(header_name, "")
-            if header_value:
+        # Scan ALL headers for secrets (not just known auth headers)
+        for header_name, header_value in flow.request.headers.items():
+            if header_value and len(header_value) > 10:
                 has_secrets, detected = self._scan_for_secrets(header_value)
                 if has_secrets:
-                    self._block(flow, b"Blocked: request header contains potential secrets", f"secrets_in_header:{header_name}", detected)
+                    self._block(flow, b"Blocked: request header contains potential secrets",
+                               f"secrets_in_header:{header_name}", detected)
                     return
 
         self._log_request(flow, blocked=False)
