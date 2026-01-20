@@ -32,8 +32,7 @@ vagrant plugin install vagrant-qemu
 ```
 
 > ⚠️ **Apple Silicon support is experimental.** The vagrant-qemu plugin has known
-> limitations including unreliable port forwarding. For a more stable experience,
-> consider VMware Fusion (free) with the vagrant-vmware-desktop plugin ($79).
+> limitations including unreliable port forwarding.
 
 ## Install
 

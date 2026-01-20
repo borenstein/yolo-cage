@@ -243,7 +243,6 @@ def cmd_build(args: argparse.Namespace) -> None:
         print()
         print(f"{YELLOW}Note: Apple Silicon support is experimental.{NC}")
         print("The vagrant-qemu plugin has known limitations.")
-        print("For a more stable experience, consider VMware Fusion + vagrant-vmware-desktop.")
         print()
 
     YOLO_CAGE_HOME.mkdir(parents=True, exist_ok=True)
