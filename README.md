@@ -1,210 +1,119 @@
 # yolo-cage: AI coding agents that can't exfiltrate secrets or merge their own PRs
 
-![yolo-cage banner](yolo-cage-banner.jpg)
+I was running four Claude Code agents in parallel on different parts of a project, and losing my mind playing whack-a-mole with permission prompts. YOLO mode was the obvious answer. But I couldn't actually do it.
 
-> **Disclaimer**: This reduces risk but does not eliminate it. Do not use with production secrets or credentials where exfiltration would be catastrophic. See the [license](#license) section below.
+So I built the cage that makes it safe.
 
-A sandboxed environment for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in YOLO mode (`--dangerously-skip-permissions`). Egress filtering blocks secret exfiltration. Git/GitHub controls enforce "agent proposes, human disposes":
+<p align="center">
+  <img src="assets/escape-blocked.gif" width="600" alt="Escape attempts blocked">
+</p>
 
-1. **Cannot exfiltrate secrets** - egress proxy scans all HTTP/HTTPS
-2. **Cannot modify code outside its branch** - git dispatcher enforces
-3. **Cannot merge its own PRs** - agent proposes, human disposes
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Vagrant** with libvirt provider (Linux headless) or VirtualBox (macOS/Windows)
-- **8GB RAM, 4 CPUs** available for the VM
-- **GitHub PAT** with `repo` scope
-- **Claude account** (Pro, Team, or Enterprise)
-
-### Install
+## Try it
 
 ```bash
-# Download latest release
 curl -fsSL https://github.com/borenstein/yolo-cage/releases/latest/download/yolo-cage -o yolo-cage
-chmod +x yolo-cage
-sudo mv yolo-cage /usr/local/bin/
-```
-
-### Build the VM
-
-```bash
-# One-time setup (interactive prompts for GitHub PAT, repo URL, etc.)
+chmod +x yolo-cage && sudo mv yolo-cage /usr/local/bin/
 yolo-cage build --interactive --up
-
-# Or with a config file
-yolo-cage build --config-file my-config.env --up
 ```
 
-### Daily Use
+Then create a sandbox and start coding:
 
 ```bash
-yolo-cage create feature-branch   # Create a sandbox
-yolo-cage attach feature-branch   # Attach (Claude starts in tmux)
-yolo-cage list                    # List all sandboxes
-yolo-cage delete feature-branch   # Delete when done
-yolo-cage down                    # Stop the VM
-yolo-cage up                      # Start the VM again
+yolo-cage create feature-branch
+yolo-cage attach feature-branch   # Claude in tmux, YOLO mode
 ```
 
-### Config Format
-
-Create `~/.yolo-cage/config.env`:
-
-```bash
-GITHUB_PAT=ghp_your_token_here
-REPO_URL=https://github.com/your-org/your-repo.git
-GIT_NAME=yolo-cage
-GIT_EMAIL=yolo-cage@localhost
-# CLAUDE_OAUTH=your_oauth_token    # Optional: skip device login
-# PROXY_BYPASS=example.com         # Optional: additional domains to bypass proxy
-# POD_MEMORY_LIMIT=4Gi             # Optional: pod memory limit
-# POD_MEMORY_REQUEST=1Gi           # Optional: pod memory request
-# POD_CPU_LIMIT=4                  # Optional: pod CPU limit
-# POD_CPU_REQUEST=500m             # Optional: pod CPU request
-```
-
-### Torture-Test It First
-
-Need to convince yourself (or your security team) it actually works?
-
-**[Security Audit Guide](docs/security-audit.md)** - Fork this repo, deploy yolo-cage against itself, run escape tests. Includes a prompt that asks an AI agent to try to break out of the cage defined by the repo it's reading.
+**Prerequisites:** Vagrant (libvirt or VirtualBox), 8GB RAM, 4 CPUs, GitHub PAT (`repo` scope), Claude account.
 
 ---
 
-## The Problem
+## What gets blocked
 
-You want multiple AI agents working on your codebase in parallel, each on different feature branches, without babysitting permission prompts. But YOLO mode feels irresponsible because agents have what [Simon Willison calls the "lethal trifecta"](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/):
+**Secrets in HTTP/HTTPS** - egress proxy scans request bodies, headers, URLs:
+- `sk-ant-*`, `AKIA*`, `ghp_*`, SSH private keys, generic credential patterns
 
-1. **Internet access** (docs, APIs, package registries)
-2. **Code execution** (the whole point)
-3. **Secrets** (API keys, SSH keys, credentials)
+**Git operations** - dispatcher enforces branch isolation:
+- Push to any branch except the one assigned at sandbox creation
+- `git remote`, `git clone`, `git config`, `git credential`
 
-Any two are fine. All three create exfiltration risk.
+**GitHub CLI** - dispatcher blocks dangerous commands:
+- `gh pr merge`, `gh repo delete`, `gh api`
 
-## The Solution
+**GitHub API** - proxy blocks at HTTP layer:
+- `PUT /repos/*/pulls/*/merge`, `DELETE /repos/*`, webhook modifications
 
-The agent is a **proposer**, not an executor. All the permission prompts that would normally interrupt autonomous development are **deferred** to a single review when the agent opens a PR.
+**Exfiltration sites**: pastebin.com, file.io, transfer.sh, etc.
 
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Vagrant VM (MicroK8s cluster)                                       │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │ yolo-cage    │  │ yolo-cage    │  │ yolo-cage    │              │
-│  │ (feature-a)  │  │ (feature-b)  │  │ (bugfix-c)   │              │
-│  │              │  │              │  │              │              │
-│  │ /usr/bin/git │  │ /usr/bin/git │  │ /usr/bin/git │              │
-│  │ (shim)       │  │ (shim)       │  │ (shim)       │              │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
-│         │                 │                 │                       │
-│         └────────────────┬┴─────────────────┘                       │
-│                          │                                          │
-│                          ▼                                          │
-│                 ┌─────────────────┐                                 │
-│                 │  Git Dispatcher │                                 │
-│                 │                 │                                 │
-│                 │ • Command gate  │                                 │
-│                 │ • Branch enforce│                                 │
-│                 │ • Pre-push hooks│                                 │
-│                 │ • Real git here │                                 │
-│                 └────────┬────────┘                                 │
-│                          │                                          │
-│         ┌────────────────┴────────────────┐                         │
-│         ▼                                 ▼                         │
-│  ┌─────────────┐                 ┌─────────────────┐               │
-│  │   GitHub    │                 │  Egress Proxy   │               │
-│  │  (HTTPS)    │                 │  (mitmproxy)    │               │
-│  └─────────────┘                 └─────────────────┘               │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**One pod per branch.** Each agent gets its own isolated pod with:
-- **State isolation**: Agents cannot interfere with each other's work
-- **Incorruptible identity**: Dispatcher identifies agents by pod IP
-- **Clean failure modes**: If one agent goes haywire, others are unaffected
+See [Architecture](docs/architecture.md) for the full threat model.
 
 ---
 
-## What Gets Blocked
+## How it works
 
-**Secrets:**
-- Anthropic API keys (`sk-ant-*`)
-- AWS credentials (`AKIA*`)
-- GitHub tokens (`ghp_*`, `github_pat_*`)
-- SSH private keys
-- Generic secrets (via detect-secrets heuristics)
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Vagrant VM (MicroK8s)                                                    │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │ Sandbox Pod                                                        │  │
+│  │                                                                    │  │
+│  │  Claude Code (YOLO mode)                                           │  │
+│  │       │                                                            │  │
+│  │       ├── git/gh ──▶ Dispatcher ──▶ GitHub                         │  │
+│  │       │              • Branch enforcement                          │  │
+│  │       │              • TruffleHog pre-push                         │  │
+│  │       │                                                            │  │
+│  │       └── HTTP/S ──▶ Egress Proxy ──▶ Internet                     │  │
+│  │                      • Secret scanning                             │  │
+│  │                      • Domain blocklist                            │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
-**Domains:**
-- Paste sites (pastebin.com, hastebin.com, etc.)
-- File sharing (file.io, transfer.sh, 0x0.st, etc.)
-
-**GitHub API:**
-- `PUT /repos/*/pulls/*/merge` - Cannot merge PRs
-- `DELETE /repos/*` - Cannot delete anything
-- Webhooks, branch protection modifications
-
-**Git Operations:**
-- Push to non-assigned branches
-- Remote management, credential access, config changes
-
-## Known Limitations
-
-- **Pre-push hooks only**: TruffleHog runs before push, not on every commit
-- **Prompt injection**: The egress filter mitigates many attacks, but sophisticated encoding could bypass scanning
+One sandbox per branch. Agents can only push to their assigned branch. All outbound traffic is filtered.
 
 ---
 
-## CLI Reference
-
-### VM Lifecycle
+## CLI
 
 | Command | Description |
 |---------|-------------|
-| `build [--config-file FILE \| --interactive] [--up]` | Clone repo, write config, build VM, apply config |
-| `rebuild` | Destroy and rebuild VM (preserves config) |
-| `up` | Start VM |
-| `down` | Stop VM |
-| `destroy` | Remove VM entirely |
-| `status` | Show VM and pod status |
+| `create <branch>` | Create sandbox |
+| `attach <branch>` | Attach (Claude in tmux) |
+| `shell <branch>` | Attach (bash) |
+| `list` | List sandboxes |
+| `delete <branch>` | Delete sandbox |
+| `up` / `down` | Start/stop VM |
 
-### Pod Operations
-
-| Command | Description |
-|---------|-------------|
-| `create <branch>` | Create a sandbox pod for the branch |
-| `attach <branch>` | Attach to sandbox (Claude in tmux) |
-| `shell <branch>` | Attach to sandbox (bash in tmux) |
-| `list` | List all sandbox pods |
-| `delete <branch> [--clean]` | Delete a sandbox pod |
-| `logs <branch>` | Tail pod logs |
+See [Configuration](docs/configuration.md) for proxy bypass, hooks, and resource limits.
 
 ---
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) - Design rationale, threat model, limitations
-- [Configuration](docs/configuration.md) - Egress policy, bypasses, hooks
-- [Security Audit](docs/security-audit.md) - Escape testing for enterprise audits
+- **[Architecture](docs/architecture.md)** - Threat model, design rationale
+- **[Configuration](docs/configuration.md)** - Egress policy, proxy bypass, hooks
+- **[Customization](docs/customization.md)** - Adding tools, resource limits
+- **[Security Audit](docs/security-audit.md)** - Escape testing guide
+
+---
+
+## Limitations
+
+This reduces risk. It does not eliminate it.
+
+- **DNS exfiltration** - data encoded in DNS queries
+- **Timing side channels** - information leaked via response timing
+- **Steganography** - secrets hidden in images or binary data
+- **Sophisticated encoding** - bypassing pattern matching
+
+Use scoped credentials. Don't use production secrets where exfiltration would be catastrophic. See [Security Audit](docs/security-audit.md) to test it yourself.
+
+<!-- TODO: Add links to security PRs once available -->
 
 ---
 
 ## License
 
-MIT. See [LICENSE](LICENSE) for full text.
-
-**Important**: This software is provided "as is", without warranty of any kind. From the license:
-
-> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-
-## Credits
-
-Designed by David Bruce Borenstein; planned and implemented by Claude. The agent built its own containment infrastructure, which is either very aligned or very meta, depending on your perspective.
+MIT. See [LICENSE](LICENSE).
