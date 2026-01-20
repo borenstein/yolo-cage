@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- **Vagrant**: With libvirt provider (Linux headless) or VirtualBox (macOS/Windows)
+- **Vagrant**: With libvirt provider (Linux/macOS) or VirtualBox (Linux only)
 - **8GB RAM, 4 CPUs**: Available for the VM
 - **GitHub PAT**: With `repo` scope ([create one here](https://github.com/settings/tokens))
 - **Claude account**: Pro, Team, or Enterprise
@@ -25,10 +25,10 @@ sudo usermod -aG libvirt $USER
 # Log out and back in
 ```
 
-**macOS (VirtualBox):**
+**macOS (libvirt):**
 ```bash
-brew install vagrant
-# Download VirtualBox from https://www.virtualbox.org/
+brew install vagrant libvirt qemu
+vagrant plugin install vagrant-libvirt
 ```
 
 ## Install

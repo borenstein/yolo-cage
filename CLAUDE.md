@@ -6,7 +6,7 @@ Sandboxed Claude Code agents. See [README.md](README.md) for full documentation.
 
 ### Prerequisites
 
-- Vagrant with libvirt provider (for headless servers) or VirtualBox
+- Vagrant with libvirt provider (macOS: `brew install vagrant libvirt qemu && vagrant plugin install vagrant-libvirt`)
 - 8GB RAM, 4 CPUs available for the VM
 
 ### Testing changes
