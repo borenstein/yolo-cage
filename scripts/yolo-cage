@@ -52,6 +52,13 @@ def detect_repo_dir() -> Path | None:
     return None
 
 
+def vagrant_provider_args() -> list[str]:
+    """Return provider args for vagrant commands. macOS requires libvirt."""
+    if sys.platform == "darwin":
+        return ["--provider=libvirt"]
+    return []
+
+
 def check_prerequisites() -> None:
     """Verify required tools are installed."""
     missing = []
@@ -271,7 +278,7 @@ def cmd_build(args: argparse.Namespace) -> None:
 
     # Build VM
     log_step("Building VM (this may take a while)...")
-    subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     # Sync config and apply
     sync_config_to_vm()
@@ -298,7 +305,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         print("Note: --ram option is not yet implemented. Using default RAM.")
 
     log_step("Starting VM...")
-    subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     log_success("VM is running")
     print()
@@ -330,7 +337,7 @@ def cmd_destroy(args: argparse.Namespace) -> None:
         return
 
     log_step("Destroying VM...")
-    subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "destroy", "-f"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     log_success("VM destroyed")
 
@@ -483,8 +490,8 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         if not repo_dir:
             die("No repository found. Run 'yolo-cage build' first.")
         log_step("Rebuilding VM with updated code...")
-        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
-        subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+        subprocess.run(["vagrant", "destroy", "-f"] + vagrant_provider_args(), cwd=repo_dir)
+        subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
         sync_config_to_vm()
         log_success("VM rebuilt")
     else:
