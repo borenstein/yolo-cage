@@ -441,12 +441,22 @@ def main() -> None:
         description="Sandboxed Claude Code agents",
     )
     parser.add_argument(
-        "--version", "-v",
+        "--version", "-v", "--v",
         action="version",
         version=f"yolo-cage {VERSION}",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
+
+    # version (subcommand alias for --version)
+    def cmd_version(args: argparse.Namespace) -> None:
+        print(f"yolo-cage {VERSION}")
+
+    p_version = subparsers.add_parser(
+        "version",
+        help="Show version",
+    )
+    p_version.set_defaults(func=cmd_version)
 
     # build
     p_build = subparsers.add_parser(
