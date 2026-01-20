@@ -28,6 +28,7 @@ sudo usermod -aG libvirt $USER
 **macOS (libvirt):**
 ```bash
 brew install vagrant libvirt qemu
+brew services start libvirt
 vagrant plugin install vagrant-libvirt
 ```
 
