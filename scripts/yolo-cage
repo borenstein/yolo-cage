@@ -337,7 +337,7 @@ def cmd_destroy(args: argparse.Namespace) -> None:
         return
 
     log_step("Destroying VM...")
-    subprocess.run(["vagrant", "destroy", "-f"] + vagrant_provider_args(), cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir, check=True)
 
     log_success("VM destroyed")
 
@@ -490,7 +490,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         if not repo_dir:
             die("No repository found. Run 'yolo-cage build' first.")
         log_step("Rebuilding VM with updated code...")
-        subprocess.run(["vagrant", "destroy", "-f"] + vagrant_provider_args(), cwd=repo_dir)
+        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
         subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
         sync_config_to_vm()
         log_success("VM rebuilt")
