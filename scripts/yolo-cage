@@ -55,6 +55,7 @@ def detect_repo_dir() -> Path | None:
 def check_prerequisites() -> None:
     """Verify required tools are installed."""
     missing = []
+    is_macos = sys.platform == "darwin"
 
     if not shutil.which("vagrant"):
         missing.append("vagrant")
@@ -62,18 +63,45 @@ def check_prerequisites() -> None:
     if not shutil.which("git"):
         missing.append("git")
 
-    # Check for either libvirt or VirtualBox
-    if shutil.which("vagrant"):
+    # Check for VirtualBox (works on all platforms)
+    has_vbox = shutil.which("VBoxManage") is not None
+
+    # Check for libvirt stack
+    has_libvirt_libs = False
+    has_libvirt_plugin = False
+
+    if is_macos:
+        # On macOS, check for libvirt and qemu via brew
+        result = subprocess.run(
+            ["brew", "list", "--formula"],
+            capture_output=True,
+            text=True,
+        )
+        installed_formulas = result.stdout if result.returncode == 0 else ""
+        has_libvirt_libs = "libvirt" in installed_formulas and "qemu" in installed_formulas
+        if not has_libvirt_libs and not has_vbox:
+            missing.append("libvirt and qemu")
+    else:
+        # On Linux, check for libvirtd
+        has_libvirt_libs = shutil.which("libvirtd") is not None
+        if not has_libvirt_libs and not has_vbox:
+            missing.append("libvirt")
+
+    # Check for vagrant-libvirt plugin (only if vagrant is installed and we're using libvirt)
+    if shutil.which("vagrant") and has_libvirt_libs and not has_vbox:
         result = subprocess.run(
             ["vagrant", "plugin", "list"],
             capture_output=True,
             text=True,
         )
-        has_libvirt = "vagrant-libvirt" in result.stdout
-        has_vbox = shutil.which("VBoxManage") is not None
+        has_libvirt_plugin = "vagrant-libvirt" in result.stdout
 
-        if not has_libvirt and not has_vbox:
-            missing.append("vagrant-libvirt plugin OR VirtualBox")
+        if not has_libvirt_plugin:
+            missing.append("vagrant-libvirt plugin")
+
+    # If no virtualization backend at all
+    if shutil.which("vagrant") and not has_libvirt_libs and not has_vbox:
+        pass  # Already added libvirt to missing above
 
     if missing:
         print("Missing prerequisites:")
@@ -81,9 +109,17 @@ def check_prerequisites() -> None:
             print(f"  - {dep}")
         print()
         print("Install with:")
-        print("  Ubuntu/Debian: sudo apt install vagrant vagrant-libvirt")
-        print("  Fedora: sudo dnf install vagrant vagrant-libvirt")
-        print("  macOS: brew install vagrant && vagrant plugin install vagrant-libvirt")
+        print()
+        if is_macos:
+            print("  macOS:")
+            print("    brew install vagrant libvirt qemu")
+            print("    vagrant plugin install vagrant-libvirt")
+        else:
+            print("  Ubuntu/Debian:")
+            print("    sudo apt install vagrant vagrant-libvirt qemu-kvm libvirt-daemon-system")
+            print()
+            print("  Fedora:")
+            print("    sudo dnf install vagrant vagrant-libvirt qemu-kvm libvirt")
         sys.exit(1)
 
 
