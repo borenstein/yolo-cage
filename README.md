@@ -23,7 +23,7 @@ yolo-cage create feature-branch
 yolo-cage attach feature-branch   # Claude in tmux, YOLO mode
 ```
 
-**Prerequisites:** Vagrant with libvirt (macOS: `brew install vagrant libvirt qemu && brew services start libvirt`), 8GB RAM, 4 CPUs, GitHub PAT (`repo` scope), Claude account.
+**Prerequisites:** Vagrant with QEMU (macOS: `brew install vagrant qemu && vagrant plugin install vagrant-qemu`), 8GB RAM, 4 CPUs, GitHub PAT (`repo` scope), Claude account.
 
 ---
 

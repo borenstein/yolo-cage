@@ -12,10 +12,17 @@ Vagrant.configure("2") do |config|
   config.vm.box = "generic/ubuntu2204"
   config.vm.hostname = "yolo-cage"
 
-  # Use libvirt provider (for headless servers)
+  # libvirt provider (Linux)
   config.vm.provider "libvirt" do |lv|
     lv.memory = 8192
     lv.cpus = 4
+  end
+
+  # QEMU provider (macOS Apple Silicon)
+  config.vm.provider "qemu" do |qe|
+    qe.memory = "8G"
+    qe.smp = 4
+    qe.arch = "aarch64"
   end
 
   # Sync repo into VM
