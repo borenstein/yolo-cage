@@ -1,4 +1,4 @@
-# yolo-cage: AI coding agents that can't exfiltrate secrets or merge their own PRs
+# yolo-cage: sandboxed coding agents that can't spill their secrets
 
 You're a responsible engineer. You'd never just let an AI run roughshod through your most sensitive systems and codebases. 
 
