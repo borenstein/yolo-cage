@@ -6,10 +6,14 @@ delegating pod operations to yolo-cage-inner inside the VM.
 """
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 YOLO_CAGE_VERSION="dev"  # Replaced by release workflow
@@ -38,6 +42,69 @@ def log_error(msg: str) -> None:
 def die(msg: str) -> None:
     log_error(msg)
     sys.exit(1)
+
+
+def parse_github_repo(repo_url: str) -> tuple[str, str] | None:
+    """Extract owner and repo name from a GitHub URL.
+
+    Supports:
+      - https://github.com/owner/repo
+      - https://github.com/owner/repo.git
+      - git@github.com:owner/repo.git
+
+    Returns (owner, repo) or None if not a valid GitHub URL.
+    """
+    # HTTPS format
+    match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo_url)
+    if match:
+        return match.group(1), match.group(2)
+
+    # SSH format
+    match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
+    if match:
+        return match.group(1), match.group(2)
+
+    return None
+
+
+def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
+    """Check if a GitHub repository is accessible with the given PAT.
+
+    Returns (success, message) tuple.
+    """
+    parsed = parse_github_repo(repo_url)
+    if not parsed:
+        return False, f"Could not parse GitHub URL: {repo_url}"
+
+    owner, repo = parsed
+    api_url = f"https://api.github.com/repos/{owner}/{repo}"
+
+    req = urllib.request.Request(api_url)
+    req.add_header("Authorization", f"token {pat}")
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("User-Agent", "yolo-cage")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            # Check if we have push access
+            permissions = data.get("permissions", {})
+            if not permissions.get("push"):
+                return False, f"PAT does not have push access to {owner}/{repo}"
+            return True, f"Repository {owner}/{repo} is accessible"
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False, f"Repository not found: {owner}/{repo}\nCheck that the repository exists and your PAT has access to it."
+        elif e.code == 401:
+            return False, "Invalid GitHub PAT or PAT has expired."
+        elif e.code == 403:
+            return False, f"Access denied to {owner}/{repo}. Check your PAT permissions."
+        else:
+            return False, f"GitHub API error: {e.code} {e.reason}"
+    except urllib.error.URLError as e:
+        return False, f"Could not connect to GitHub: {e.reason}"
+    except Exception as e:
+        return False, f"Unexpected error validating repository: {e}"
 
 
 def detect_repo_dir() -> Path | None:
@@ -170,6 +237,22 @@ def vagrant_ssh(repo_dir: Path, command: str, interactive: bool = False) -> int:
         )
 
 
+def load_config() -> dict[str, str]:
+    """Load configuration from config.env file."""
+    config_path = YOLO_CAGE_HOME / "config.env"
+    if not config_path.exists():
+        return {}
+
+    config = {}
+    with open(config_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                config[key.strip()] = value.strip()
+    return config
+
+
 def prompt_config() -> None:
     """Interactively prompt for configuration."""
     YOLO_CAGE_HOME.mkdir(parents=True, exist_ok=True)
@@ -184,6 +267,14 @@ def prompt_config() -> None:
     repo_url = input("Repository URL: ").strip()
     if not repo_url:
         die("Repository URL is required")
+
+    # Validate repository access before continuing
+    log_step("Validating repository access...")
+    valid, message = validate_github_repo(repo_url, github_pat)
+    if not valid:
+        die(message)
+    log_success(message)
+    print()
 
     git_name = input("Git name [yolo-cage]: ").strip() or "yolo-cage"
     git_email = input("Git email [yolo-cage@localhost]: ").strip() or "yolo-cage@localhost"
@@ -356,6 +447,21 @@ def cmd_create(args: argparse.Namespace) -> None:
     """Create a sandbox pod for a branch."""
     ensure_vm_running()
     repo_dir = ensure_repo()
+
+    # Validate repository access before creating pod
+    config = load_config()
+    pat = config.get("GITHUB_PAT")
+    repo_url = config.get("REPO_URL")
+
+    if not pat or not repo_url:
+        die("Missing GITHUB_PAT or REPO_URL in config. Run 'yolo-cage configure'.")
+
+    log_step("Validating repository access...")
+    valid, message = validate_github_repo(repo_url, pat)
+    if not valid:
+        die(message)
+    log_success(message)
+
     vagrant_ssh(repo_dir, f"yolo-cage-inner create '{args.branch}'")
 
 
