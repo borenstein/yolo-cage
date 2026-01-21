@@ -1,4 +1,4 @@
-# yolo-cage: autonomous coding agents that can do no harm
+# yolo-cage: autonomous coding agents that do no harm
 
 You're a responsible engineer. You'd never just let an AI run roughshod through your most sensitive systems and codebases. 
 
