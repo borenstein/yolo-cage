@@ -481,8 +481,15 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     # Step 2: Update the repo
     if repo_dir and repo_dir == YOLO_CAGE_HOME / "repo":
         log_step("Updating repository...")
+        # Fetch latest and reset to origin/main (discarding any local changes)
+        # This is safe because ~/.yolo-cage/repo is an internal clone, not user-editable
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=repo_dir,
+            capture_output=True,
+        )
         result = subprocess.run(
-            ["git", "pull", "--ff-only"],
+            ["git", "reset", "--hard", "origin/main"],
             cwd=repo_dir,
             capture_output=True,
             text=True,
@@ -491,7 +498,6 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             log_success("Repository updated")
         else:
             log_error(f"Failed to update repository: {result.stderr}")
-            print("You may need to manually resolve conflicts in ~/.yolo-cage/repo")
     elif repo_dir:
         print(f"Skipping repo update (running from dev repo: {repo_dir})")
 
