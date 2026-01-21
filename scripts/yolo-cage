@@ -52,6 +52,13 @@ def detect_repo_dir() -> Path | None:
     return None
 
 
+def vagrant_provider_args() -> list[str]:
+    """Return provider args for vagrant commands. macOS requires qemu."""
+    if sys.platform == "darwin":
+        return ["--provider=qemu"]
+    return []
+
+
 def check_prerequisites() -> None:
     """Verify required tools are installed."""
     missing = []
@@ -63,45 +70,42 @@ def check_prerequisites() -> None:
     if not shutil.which("git"):
         missing.append("git")
 
-    # Check for VirtualBox (works on all platforms)
-    has_vbox = shutil.which("VBoxManage") is not None
-
-    # Check for libvirt stack
-    has_libvirt_libs = False
-    has_libvirt_plugin = False
-
     if is_macos:
-        # On macOS, check for libvirt and qemu via brew
+        # macOS requires QEMU + vagrant-qemu plugin
         result = subprocess.run(
             ["brew", "list", "--formula"],
             capture_output=True,
             text=True,
         )
         installed_formulas = result.stdout if result.returncode == 0 else ""
-        has_libvirt_libs = "libvirt" in installed_formulas and "qemu" in installed_formulas
-        if not has_libvirt_libs and not has_vbox:
-            missing.append("libvirt and qemu")
+        if "qemu" not in installed_formulas:
+            missing.append("qemu")
+
+        # Check for vagrant-qemu plugin
+        if shutil.which("vagrant"):
+            result = subprocess.run(
+                ["vagrant", "plugin", "list"],
+                capture_output=True,
+                text=True,
+            )
+            if "vagrant-qemu" not in result.stdout:
+                missing.append("vagrant-qemu plugin")
     else:
-        # On Linux, check for libvirtd
-        has_libvirt_libs = shutil.which("libvirtd") is not None
-        if not has_libvirt_libs and not has_vbox:
-            missing.append("libvirt")
+        # On Linux, check for libvirtd or VirtualBox
+        has_vbox = shutil.which("VBoxManage") is not None
+        has_libvirt = shutil.which("libvirtd") is not None
+        if not has_libvirt and not has_vbox:
+            missing.append("libvirt (or VirtualBox)")
 
-    # Check for vagrant-libvirt plugin (only if vagrant is installed and we're using libvirt)
-    if shutil.which("vagrant") and has_libvirt_libs and not has_vbox:
-        result = subprocess.run(
-            ["vagrant", "plugin", "list"],
-            capture_output=True,
-            text=True,
-        )
-        has_libvirt_plugin = "vagrant-libvirt" in result.stdout
-
-        if not has_libvirt_plugin:
-            missing.append("vagrant-libvirt plugin")
-
-    # If no virtualization backend at all
-    if shutil.which("vagrant") and not has_libvirt_libs and not has_vbox:
-        pass  # Already added libvirt to missing above
+        # Check for vagrant-libvirt plugin if using libvirt
+        if shutil.which("vagrant") and has_libvirt:
+            result = subprocess.run(
+                ["vagrant", "plugin", "list"],
+                capture_output=True,
+                text=True,
+            )
+            if "vagrant-libvirt" not in result.stdout:
+                missing.append("vagrant-libvirt plugin")
 
     if missing:
         print("Missing prerequisites:")
@@ -112,8 +116,8 @@ def check_prerequisites() -> None:
         print()
         if is_macos:
             print("  macOS:")
-            print("    brew install vagrant libvirt qemu")
-            print("    vagrant plugin install vagrant-libvirt")
+            print("    brew install vagrant qemu")
+            print("    vagrant plugin install vagrant-qemu")
         else:
             print("  Ubuntu/Debian:")
             print("    sudo apt install vagrant vagrant-libvirt qemu-kvm libvirt-daemon-system")
@@ -234,6 +238,13 @@ def sync_config_to_vm() -> None:
 def cmd_build(args: argparse.Namespace) -> None:
     """Set up yolo-cage (clone repo, build VM)."""
     check_prerequisites()
+
+    if sys.platform == "darwin":
+        print()
+        print(f"{YELLOW}Note: Apple Silicon support is experimental.{NC}")
+        print("The vagrant-qemu plugin has known limitations.")
+        print()
+
     YOLO_CAGE_HOME.mkdir(parents=True, exist_ok=True)
 
     existing_config = YOLO_CAGE_HOME / "config.env"
@@ -277,7 +288,7 @@ def cmd_build(args: argparse.Namespace) -> None:
 
     # Build VM
     log_step("Building VM (this may take a while)...")
-    subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     # Sync config and apply
     sync_config_to_vm()
@@ -304,7 +315,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         print("Note: --ram option is not yet implemented. Using default RAM.")
 
     log_step("Starting VM...")
-    subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     log_success("VM is running")
     print()
@@ -490,7 +501,7 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             die("No repository found. Run 'yolo-cage build' first.")
         log_step("Rebuilding VM with updated code...")
         subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
-        subprocess.run(["vagrant", "up"], cwd=repo_dir, check=True)
+        subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
         sync_config_to_vm()
         log_success("VM rebuilt")
     else:
