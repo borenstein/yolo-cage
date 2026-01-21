@@ -278,7 +278,6 @@ def prompt_config() -> None:
 
     git_name = input("Git name [yolo-cage]: ").strip() or "yolo-cage"
     git_email = input("Git email [yolo-cage@localhost]: ").strip() or "yolo-cage@localhost"
-    claude_oauth = input("Claude OAuth token (optional, press Enter to skip): ").strip()
     proxy_bypass = input("Proxy bypass domains (optional, comma-separated): ").strip()
 
     config_path = YOLO_CAGE_HOME / "config.env"
@@ -291,9 +290,6 @@ def prompt_config() -> None:
         f.write(f"# Git identity\n")
         f.write(f"GIT_NAME={git_name}\n")
         f.write(f"GIT_EMAIL={git_email}\n")
-
-        if claude_oauth:
-            f.write(f"\nCLAUDE_OAUTH={claude_oauth}\n")
 
         if proxy_bypass:
             f.write(f"\nPROXY_BYPASS={proxy_bypass}\n")

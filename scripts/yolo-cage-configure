@@ -8,7 +8,6 @@
 #   REPO_URL=https://github.com/org/repo.git   # Repository to work on
 #   GIT_NAME="Your Name"                       # Git author name
 #   GIT_EMAIL="you@example.com"                # Git author email
-#   CLAUDE_OAUTH="..."                         # Optional: Claude OAuth token
 #   PROXY_BYPASS="example.com,other.com"       # Optional: Additional proxy bypass domains
 #
 # Usage:
@@ -57,7 +56,6 @@ Required fields:
 Optional fields:
   GIT_NAME            Git author name (default: yolo-cage)
   GIT_EMAIL           Git author email (default: yolo-cage@localhost)
-  CLAUDE_OAUTH        Claude credentials JSON (copy from ~/.claude/.credentials.json)
   PROXY_BYPASS        Additional domains to bypass proxy (comma-separated)
   POD_MEMORY_LIMIT    Pod memory limit (default: 4Gi)
   POD_MEMORY_REQUEST  Pod memory request (default: 1Gi)
@@ -122,9 +120,6 @@ cmd_validate() {
     echo "Repository: ${REPO_URL}"
     echo "Git identity: ${GIT_NAME} <${GIT_EMAIL}>"
     echo "GitHub PAT: ${GITHUB_PAT:0:10}..."
-    if [[ -n "${CLAUDE_OAUTH:-}" ]]; then
-        echo "Claude OAuth: configured"
-    fi
     if [[ -n "${PROXY_BYPASS:-}" ]]; then
         echo "Proxy bypass: ${PROXY_BYPASS}"
     fi
@@ -205,21 +200,7 @@ EOF
         log_success "egress-policy ConfigMap updated"
     fi
 
-    # Step 4: Create Claude credentials secret if provided
-    if [[ -n "${CLAUDE_OAUTH:-}" ]]; then
-        log_step "Creating yolo-cage-credentials secret..."
-        kubectl delete secret yolo-cage-credentials -n "${NAMESPACE}" --ignore-not-found
-        # Use temp file to preserve JSON quotes
-        local tmpfile=$(mktemp)
-        printf '%s' "${CLAUDE_OAUTH}" > "${tmpfile}"
-        kubectl create secret generic yolo-cage-credentials \
-            -n "${NAMESPACE}" \
-            --from-file=CLAUDE_OAUTH="${tmpfile}"
-        rm -f "${tmpfile}"
-        log_success "yolo-cage-credentials secret created"
-    fi
-
-    # Step 5: Restart dispatcher to pick up new config
+    # Step 4: Restart dispatcher to pick up new config
     log_step "Restarting dispatcher..."
     kubectl rollout restart deployment/git-dispatcher -n "${NAMESPACE}"
     kubectl rollout status deployment/git-dispatcher -n "${NAMESPACE}" --timeout=60s

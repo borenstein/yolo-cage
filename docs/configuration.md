@@ -14,7 +14,6 @@ REPO_URL=https://github.com/your-org/your-repo.git
 # Optional
 GIT_NAME=yolo-cage
 GIT_EMAIL=yolo-cage@localhost
-CLAUDE_OAUTH=your_oauth_token
 PROXY_BYPASS=example.com,internal.corp
 
 # Pod resources (defaults shown)
@@ -333,7 +332,6 @@ resources:
 The CLI handles secret creation automatically when you run `yolo-cage build`. The following secrets are created in the cluster:
 
 - **github-pat**: Your GitHub PAT (from `GITHUB_PAT` in config.env)
-- **yolo-cage-credentials**: Claude OAuth token (if `CLAUDE_OAUTH` is set)
 
 ### GitHub PAT Scopes
 

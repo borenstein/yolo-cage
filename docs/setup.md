@@ -75,7 +75,6 @@ You'll be prompted for:
 - GitHub PAT
 - Repository URL
 - Git name and email (optional, defaults to "yolo-cage")
-- Claude OAuth token (optional, use device login flow if skipped)
 - Proxy bypass domains (optional)
 
 ### Option B: Config File Setup
@@ -87,7 +86,6 @@ GITHUB_PAT=ghp_your_token_here
 REPO_URL=https://github.com/your-org/your-repo.git
 GIT_NAME=yolo-cage
 GIT_EMAIL=yolo-cage@localhost
-# CLAUDE_OAUTH=your_oauth_token
 # PROXY_BYPASS=example.com,internal.corp
 ```
 
@@ -146,8 +144,6 @@ On first attach to any sandbox, you'll complete the standard OAuth device flow:
 3. Enter the code to authorize
 
 After that, all sandbox pods share the same credentials.
-
-**Alternative**: Set `CLAUDE_OAUTH` in your config to skip the device flow.
 
 ## Troubleshooting
 

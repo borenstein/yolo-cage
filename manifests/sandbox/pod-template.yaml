@@ -34,32 +34,27 @@ spec:
         - name: ca-bundle
           mountPath: /ca-bundle
 
-    # Initialize per-branch Claude Code state (credentials + config)
+    # Initialize Claude Code state (shared auth via .claude.json, per-branch sessions via .claude/)
     - name: setup-claude-home
       image: python:3.12-slim-bookworm
       env:
         - name: BRANCH
           value: "${BRANCH}"
-        - name: CLAUDE_OAUTH
-          valueFrom:
-            secretKeyRef:
-              name: yolo-cage-credentials
-              key: CLAUDE_OAUTH
-              optional: true
       command:
         - /bin/sh
         - -c
         - |
           set -e
-          # Store claude state separately from workspace to avoid polluting git
+          # Per-branch .claude directory for session isolation
           STATE_DIR="/pvc/.claude-state/${BRANCH}"
           CLAUDE_DIR="${STATE_DIR}/.claude"
-          CLAUDE_JSON="${STATE_DIR}/.claude.json"
+          # Shared .claude.json for auth propagation across all pods
+          CLAUDE_JSON="/pvc/.claude.json"
 
           # Create per-branch .claude directory
           mkdir -p "${CLAUDE_DIR}"
 
-          # Create .claude.json with minimal state to skip onboarding
+          # Create shared .claude.json with minimal state to skip onboarding
           if [ ! -f "${CLAUDE_JSON}" ]; then
             cat > "${CLAUDE_JSON}" <<'EOF'
           {
@@ -67,14 +62,6 @@ spec:
             "lastOnboardingVersion": "2.0.0"
           }
           EOF
-          fi
-
-          # Write credentials if CLAUDE_OAUTH is provided
-          if [ -n "${CLAUDE_OAUTH}" ]; then
-            cat > "${CLAUDE_DIR}/.credentials.json" <<CREDS_EOF
-          ${CLAUDE_OAUTH}
-          CREDS_EOF
-            chmod 600 "${CLAUDE_DIR}/.credentials.json"
           fi
 
           # Create CLAUDE.md if it doesn't exist
@@ -174,7 +161,7 @@ spec:
           subPath: .claude-state/${BRANCH}/.claude
         - name: workspaces
           mountPath: /home/dev/.claude.json
-          subPath: .claude-state/${BRANCH}/.claude.json
+          subPath: .claude.json
         - name: proxy-ca
           mountPath: /etc/ssl/certs/mitmproxy-ca.pem
           subPath: mitmproxy-ca.pem
