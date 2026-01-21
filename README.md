@@ -1,8 +1,16 @@
 # yolo-cage
 
-I was running four Claude Code agents in parallel on different parts of a project, and losing my mind playing whack-a-mole with permission prompts. YOLO mode was the obvious answer. But I couldn't actually do it.
+You're a responsible engineer. You'd never just let an AI run roughshod through your most sensitive systems and codebases. 
 
-So I built the cage that makes it safe.
+That's why you'd **never** just shut off the safeguards for a tool like Claude Code. It asks permission for every dangerous action! Safe!
+
+So you wait. And you answer. Decision fatigue sets in. And that's when it happens.
+
+[FIRST VIDEO]
+
+Permission prompts neglect the weakest part of the thread model: a tired user. What if we could empower the agent while limiting its blast radius, thus deferring your decisions until PR review?
+
+That would be great! And that would be yolo-cage.
 
 <p align="center">
   <img src="assets/escape-blocked.gif" width="600" alt="Escape attempts blocked">
