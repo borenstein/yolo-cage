@@ -14,6 +14,34 @@ from ..github import validate_github_repo
 from ..vm import get_vm_status, sync_config_to_vm
 
 
+def _validate_existing_config(config_path) -> None:
+    """Validate an existing config file."""
+    if not config_path.exists():
+        die(f"No config at {config_path}. Run 'yolo-cage configure --interactive'.")
+
+    config = load_config(config_path)
+    pat, repo_url = config.get("GITHUB_PAT"), config.get("REPO_URL")
+    if not pat or not repo_url:
+        die("Missing GITHUB_PAT or REPO_URL in config.")
+
+    log_step("Validating repository access...")
+    valid, message = validate_github_repo(repo_url, pat)
+    if not valid:
+        die(message)
+    log_success(message)
+
+
+def _sync_if_running(repo_dir, config_path) -> None:
+    """Sync config to VM if running, otherwise just report saved."""
+    if not repo_dir.exists() or get_vm_status(repo_dir) != "running":
+        log_success(f"Config saved to {config_path}")
+        if repo_dir.exists():
+            print("VM not running. Config will apply on next 'yolo-cage up'.")
+        return
+
+    sync_config_to_vm(repo_dir, config_path)
+
+
 def cmd_configure(args: argparse.Namespace) -> None:
     """Update configuration and sync to VM."""
     maybe_migrate_legacy_layout()
@@ -24,31 +52,6 @@ def cmd_configure(args: argparse.Namespace) -> None:
     if args.interactive:
         prompt_config(config_path)
     else:
-        if not config_path.exists():
-            die(f"No config found at {config_path}\nRun 'yolo-cage configure --interactive' to create one.")
+        _validate_existing_config(config_path)
 
-        # Validate the config before syncing
-        config = load_config(config_path)
-        pat = config.get("GITHUB_PAT")
-        repo_url = config.get("REPO_URL")
-
-        if not pat or not repo_url:
-            die("Missing GITHUB_PAT or REPO_URL in config.")
-
-        log_step("Validating repository access...")
-        valid, message = validate_github_repo(repo_url, pat)
-        if not valid:
-            die(message)
-        log_success(message)
-
-    # Sync to VM if it's running
-    if repo_dir.exists():
-        vm_status = get_vm_status(repo_dir)
-
-        if vm_status == "running":
-            sync_config_to_vm(repo_dir, config_path)
-        else:
-            log_success(f"Config saved to {config_path}")
-            print("VM is not running. Config will be applied on next 'yolo-cage up'.")
-    else:
-        log_success(f"Config saved to {config_path}")
+    _sync_if_running(repo_dir, config_path)

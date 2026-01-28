@@ -191,56 +191,34 @@ def maybe_migrate_legacy_layout() -> None:
 
     log_step("Migrating to new instance layout...")
 
-    # Create instances/default/
     default_dir = instances_dir / "default"
     default_dir.mkdir(parents=True)
-
-    # Move config.env
     shutil.move(str(old_config), str(default_dir / "config.env"))
 
-    # Move repo if it exists
     if old_repo.exists():
         shutil.move(str(old_repo), str(default_dir / "repo"))
-        # Create instance.json for cloned repo
-        (default_dir / "instance.json").write_text('{"repo_path": null}\n')
-    else:
-        # No repo, create empty instance.json
-        (default_dir / "instance.json").write_text('{"repo_path": null}\n')
 
-    # Set as default
+    (default_dir / "instance.json").write_text('{"repo_path": null}\n')
     set_default_instance("default")
-
     log_success("Migrated to instances/default/")
 
 
 def resolve_instance(instance_arg: str | None) -> str:
-    """Determine which instance to use.
-
-    Args:
-        instance_arg: The --instance argument value, or None if not provided.
-
-    Returns:
-        The instance name to use.
-
-    Raises:
-        SystemExit: If no instance can be determined.
-    """
+    """Determine which instance to use. Dies if none can be determined."""
     from .output import die
 
     if instance_arg:
         if not instance_exists(instance_arg):
-            die(f"Instance '{instance_arg}' does not exist. Use 'yolo-cage instances' to list available instances.")
+            die(f"Instance '{instance_arg}' does not exist.")
         return instance_arg
 
     default = get_default_instance()
-    if not default:
-        instances = list_instances()
-        if instances:
-            die(
-                f"No default instance set. Use --instance=<name> or 'yolo-cage set-default <name>'.\n"
-                f"Available instances: {', '.join(instances)}"
-            )
-        else:
-            die("No instances found. Run 'yolo-cage build' first.")
+    if default:
+        return default
 
-    return default
+    instances = list_instances()
+    if instances:
+        die(f"No default instance. Use --instance=<name> or 'yolo-cage set-default <name>'.\n"
+            f"Available: {', '.join(instances)}")
+
+    die("No instances found. Run 'yolo-cage build' first.")
