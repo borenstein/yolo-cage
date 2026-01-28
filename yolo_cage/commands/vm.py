@@ -76,41 +76,39 @@ def cmd_destroy(args: argparse.Namespace) -> None:
     log_success("VM destroyed")
 
 
+def _print_instance_status(name: str, is_default: bool) -> None:
+    repo_dir = get_repo_dir(name)
+    config_path = get_config_path(name)
+    marker = " *" if is_default else ""
+
+    print(f"Instance: {name}{marker}")
+    print(f"  Repository: {repo_dir}")
+    print(f"  Config: {config_path}")
+
+    if not repo_dir.exists():
+        print("  VM status: not built\n")
+        return
+
+    status = get_vm_status(repo_dir)
+    print(f"  VM status: {status}")
+
+    if status == "running":
+        print("\n  Pods:")
+        vagrant_ssh(repo_dir, "yolo-cage-inner list")
+    print()
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     """Show VM and pod status."""
     maybe_migrate_legacy_layout()
 
     instances = list_instances()
     if not instances:
-        print("Status: No instances found")
-        print()
-        print("Run 'yolo-cage build --interactive --up' to get started.")
+        print("No instances found.\nRun 'yolo-cage build --interactive --up' to get started.")
         return
 
-    # If --instance specified, show only that instance
-    if args.instance:
-        instances = [args.instance]
-
+    targets = [args.instance] if args.instance else instances
     default = get_default_instance()
 
-    for instance in instances:
-        repo_dir = get_repo_dir(instance)
-        config_path = get_config_path(instance)
-
-        marker = " *" if instance == default else ""
-        print(f"Instance: {instance}{marker}")
-        print(f"  Repository: {repo_dir}")
-        print(f"  Config: {config_path}")
-
-        if not repo_dir.exists():
-            print("  VM status: not built")
-        else:
-            vm_status = get_vm_status(repo_dir)
-            print(f"  VM status: {vm_status}")
-
-            if vm_status == "running":
-                print()
-                print("  Pods:")
-                vagrant_ssh(repo_dir, "yolo-cage-inner list")
-
-        print()
+    for name in targets:
+        _print_instance_status(name, name == default)

@@ -5,69 +5,55 @@ import re
 import urllib.error
 import urllib.request
 
+HTTPS_PATTERN = re.compile(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$")
+SSH_PATTERN = re.compile(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$")
+
 
 def parse_github_repo(repo_url: str) -> tuple[str, str] | None:
-    """Extract owner and repo name from a GitHub URL.
-
-    Supports:
-      - https://github.com/owner/repo
-      - https://github.com/owner/repo.git
-      - git@github.com:owner/repo.git
-
-    Returns (owner, repo) or None if not a valid GitHub URL.
-    """
-    # HTTPS format
-    match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo_url)
-    if match:
-        return match.group(1), match.group(2)
-
-    # SSH format
-    match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
-    if match:
-        return match.group(1), match.group(2)
-
+    """Extract (owner, repo) from GitHub URL, or None if invalid."""
+    for pattern in (HTTPS_PATTERN, SSH_PATTERN):
+        match = pattern.match(repo_url)
+        if match:
+            return match.group(1), match.group(2)
     return None
 
 
-def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
-    """Check if a GitHub repository is accessible with the given PAT.
+def _build_api_request(owner: str, repo: str, pat: str) -> urllib.request.Request:
+    req = urllib.request.Request(f"https://api.github.com/repos/{owner}/{repo}")
+    req.add_header("Authorization", f"token {pat}")
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("User-Agent", "yolo-cage")
+    return req
 
-    Returns (success, message) tuple.
-    """
+
+def _check_push_access(data: dict, owner: str, repo: str) -> tuple[bool, str]:
+    if not data.get("permissions", {}).get("push"):
+        return False, f"PAT lacks push access to {owner}/{repo}"
+    return True, f"Repository {owner}/{repo} is accessible"
+
+
+def _handle_http_error(e: urllib.error.HTTPError, owner: str, repo: str) -> tuple[bool, str]:
+    messages = {
+        404: f"Repository not found: {owner}/{repo}",
+        401: "Invalid or expired GitHub PAT.",
+        403: f"Access denied to {owner}/{repo}.",
+    }
+    return False, messages.get(e.code, f"GitHub API error: {e.code}")
+
+
+def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
+    """Check if repository is accessible with PAT. Returns (success, message)."""
     parsed = parse_github_repo(repo_url)
     if not parsed:
         return False, f"Could not parse GitHub URL: {repo_url}"
 
     owner, repo = parsed
-    api_url = f"https://api.github.com/repos/{owner}/{repo}"
-
-    req = urllib.request.Request(api_url)
-    req.add_header("Authorization", f"token {pat}")
-    req.add_header("Accept", "application/vnd.github.v3+json")
-    req.add_header("User-Agent", "yolo-cage")
+    req = _build_api_request(owner, repo, pat)
 
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            # Check if we have push access
-            permissions = data.get("permissions", {})
-            if not permissions.get("push"):
-                return False, f"PAT does not have push access to {owner}/{repo}"
-            return True, f"Repository {owner}/{repo} is accessible"
+            return _check_push_access(json.loads(resp.read().decode()), owner, repo)
     except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return (
-                False,
-                f"Repository not found: {owner}/{repo}\n"
-                "Check that the repository exists and your PAT has access to it.",
-            )
-        elif e.code == 401:
-            return False, "Invalid GitHub PAT or PAT has expired."
-        elif e.code == 403:
-            return False, f"Access denied to {owner}/{repo}. Check your PAT permissions."
-        else:
-            return False, f"GitHub API error: {e.code} {e.reason}"
+        return _handle_http_error(e, owner, repo)
     except urllib.error.URLError as e:
         return False, f"Could not connect to GitHub: {e.reason}"
-    except Exception as e:
-        return False, f"Unexpected error validating repository: {e}"

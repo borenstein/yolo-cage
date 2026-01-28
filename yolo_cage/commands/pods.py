@@ -16,11 +16,25 @@ from ..vm import ensure_vm_running, vagrant_ssh
 
 
 def _format_command(cmd: str, instance: str) -> str:
-    """Format a yolo-cage command, including -I flag if not default instance."""
+    """Format command with -I flag if not default instance."""
     default = get_default_instance()
-    if instance != default:
-        return f"yolo-cage -I {instance} {cmd}"
-    return f"yolo-cage {cmd}"
+    prefix = f"-I {instance} " if instance != default else ""
+    return f"yolo-cage {prefix}{cmd}"
+
+
+def _validate_config(config_path) -> tuple[str, str]:
+    """Load and validate config, returning (pat, repo_url)."""
+    config = load_config(config_path)
+    pat, repo_url = config.get("GITHUB_PAT"), config.get("REPO_URL")
+    if not pat or not repo_url:
+        die("Missing GITHUB_PAT or REPO_URL. Run 'yolo-cage configure'.")
+
+    log_step("Validating repository access...")
+    valid, message = validate_github_repo(repo_url, pat)
+    if not valid:
+        die(message)
+    log_success(message)
+    return pat, repo_url
 
 
 def cmd_create(args: argparse.Namespace) -> None:
@@ -28,29 +42,12 @@ def cmd_create(args: argparse.Namespace) -> None:
     maybe_migrate_legacy_layout()
     instance = resolve_instance(args.instance)
     repo_dir = get_repo_dir(instance)
-    config_path = get_config_path(instance)
 
     ensure_vm_running(repo_dir)
-
-    # Validate repository access before creating pod
-    config = load_config(config_path)
-    pat = config.get("GITHUB_PAT")
-    repo_url = config.get("REPO_URL")
-
-    if not pat or not repo_url:
-        die("Missing GITHUB_PAT or REPO_URL in config. Run 'yolo-cage configure'.")
-
-    log_step("Validating repository access...")
-    valid, message = validate_github_repo(repo_url, pat)
-    if not valid:
-        die(message)
-    log_success(message)
+    _validate_config(get_config_path(instance))
 
     vagrant_ssh(repo_dir, f"yolo-cage-inner create '{args.branch}'")
-
-    # Print attach command with proper instance context
-    attach_cmd = _format_command(f"attach {args.branch}", instance)
-    print(f"Run: {attach_cmd}")
+    print(f"Run: {_format_command(f'attach {args.branch}', instance)}")
 
 
 def cmd_attach(args: argparse.Namespace) -> None:
