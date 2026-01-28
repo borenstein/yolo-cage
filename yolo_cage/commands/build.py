@@ -23,90 +23,91 @@ from ..config import prompt_config
 from ..vm import sync_config_to_vm, vagrant_provider_args
 
 
-def _local_repo_available(local_repo: Path | None, instances: list[str]) -> bool:
-    """Check if local repo can be used (exists and not already claimed)."""
-    if not local_repo:
-        return False
+def _warn_darwin() -> None:
+    if sys.platform == "darwin":
+        print(f"\n{YELLOW}Note: Apple Silicon support is experimental.{NC}")
+        print("The vagrant-qemu plugin has known limitations.\n")
+
+
+def _resolve_instance_name(args: argparse.Namespace) -> str:
+    instances = list_instances()
+    if instances and not args.instance:
+        die(f"Instance exists. Use --instance=<name>.\nExisting: {', '.join(instances)}")
+
+    name = args.instance or "default"
+    if instance_exists(name):
+        die(f"Instance '{name}' already exists.")
+    return name
+
+
+def _choose_repo_path(instances: list[str]) -> Path | None:
+    local = detect_local_repo()
+    if not local:
+        return None
     for name in instances:
-        if get_instance_config(name).get("repo_path") == str(local_repo):
-            log_step("Local repo already in use, cloning instead...")
-            return False
-    log_step(f"Using local repository: {local_repo}")
-    return True
+        if get_instance_config(name).get("repo_path") == str(local):
+            log_step("Local repo in use, cloning instead...")
+            return None
+    log_step(f"Using local repository: {local}")
+    return local
 
 
 def _setup_config(args: argparse.Namespace, config_path: Path) -> None:
-    """Set up configuration from file, interactive prompt, or existing."""
     if args.config_file:
         src = Path(args.config_file)
         if not src.exists():
             die(f"Config file not found: {src}")
         shutil.copy(src, config_path)
         log_success(f"Config copied to {config_path}")
-        return
-
-    if args.interactive:
+    elif args.interactive:
         prompt_config(config_path)
-        return
-
-    if config_path.exists():
+    elif config_path.exists():
         log_success(f"Using existing config: {config_path}")
-        return
+    else:
+        die(f"No config. Use --interactive or --config-file.")
 
-    die(
-        f"No configuration found.\n\n"
-        f"Either:\n"
-        f"  - Run with --interactive to create one\n"
-        f"  - Run with --config-file to use an existing file\n"
-        f"  - Create {config_path} manually"
-    )
+
+def _destroy_existing_vm(repo_dir: Path) -> None:
+    if (repo_dir / ".vagrant").exists():
+        log_step("Destroying existing VM...")
+        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
+
+
+def _build_vm(repo_dir: Path, config_path: Path) -> None:
+    log_step("Building VM (this may take a while)...")
+    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
+    sync_config_to_vm(repo_dir, config_path)
+
+
+def _finalize(repo_dir: Path, keep_running: bool) -> None:
+    if keep_running:
+        log_success("VM built and running!")
+        print("Create a sandbox:  yolo-cage create <branch>")
+        print("List sandboxes:    yolo-cage list")
+        print("Attach to sandbox: yolo-cage attach <branch>")
+    else:
+        subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
+        log_success("VM built successfully!")
+        print("Run 'yolo-cage up' to start the VM.")
 
 
 def cmd_build(args: argparse.Namespace) -> None:
     """Set up yolo-cage (clone repo, build VM)."""
     check_prerequisites()
+    _warn_darwin()
 
-    if sys.platform == "darwin":
-        print(f"\n{YELLOW}Note: Apple Silicon support is experimental.{NC}")
-        print("The vagrant-qemu plugin has known limitations.\n")
-
-    instances = list_instances()
-    if instances and not args.instance:
-        die(f"Instance already exists. Use --instance=<name> to create another.\n"
-            f"Existing instances: {', '.join(instances)}")
-
-    instance_name = args.instance or "default"
-    if instance_exists(instance_name):
-        die(f"Instance '{instance_name}' already exists.")
-
-    local_repo = detect_local_repo()
-    use_local = _local_repo_available(local_repo, instances)
-    create_instance(instance_name, repo_path=local_repo if use_local else None)
+    name = _resolve_instance_name(args)
+    repo_path = _choose_repo_path(list_instances())
+    create_instance(name, repo_path=repo_path)
 
     if not get_default_instance():
-        set_default_instance(instance_name)
-        log_success(f"Instance '{instance_name}' set as default")
+        set_default_instance(name)
+        log_success(f"Instance '{name}' set as default")
 
-    config_path = get_config_path(instance_name)
+    config_path = get_config_path(name)
     _setup_config(args, config_path)
 
-    repo_dir = get_repo_dir(instance_name)
-    if (repo_dir / ".vagrant").exists():
-        log_step("Destroying existing VM...")
-        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
-
-    log_step("Building VM (this may take a while)...")
-    subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
-    sync_config_to_vm(repo_dir, config_path)
-
-    if args.up:
-        print("\n")
-        log_success("VM built and running!")
-        print("\nCreate a sandbox:  yolo-cage create <branch>")
-        print("List sandboxes:    yolo-cage list")
-        print("Attach to sandbox: yolo-cage attach <branch>")
-    else:
-        subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
-        print("\n")
-        log_success("VM built successfully!")
-        print("Run 'yolo-cage up' to start the VM.")
+    repo_dir = get_repo_dir(name)
+    _destroy_existing_vm(repo_dir)
+    _build_vm(repo_dir, config_path)
+    _finalize(repo_dir, args.up)
