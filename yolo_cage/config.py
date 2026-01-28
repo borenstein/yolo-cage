@@ -1,68 +1,98 @@
-"""Configuration management."""
+"""Config - typed configuration for a yolo-cage instance."""
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from .output import die, log_step, log_success
 from .github import validate_github_repo
 
 
-def load_config(config_path: Path) -> dict[str, str]:
-    """Load configuration from config.env file."""
-    if not config_path.exists():
-        return {}
+@dataclass
+class Config:
+    """Typed configuration for a yolo-cage instance."""
 
-    config = {}
-    with open(config_path) as f:
-        for line in f:
+    github_pat: str
+    repo_url: str
+    git_name: str = "yolo-cage"
+    git_email: str = "yolo-cage@localhost"
+    proxy_bypass: str = ""
+
+    @classmethod
+    def load(cls, path: Path) -> "Config | None":
+        """Load from config.env file. Returns None if missing or invalid."""
+        if not path.exists():
+            return None
+
+        values = {}
+        for line in path.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
-                config[key.strip()] = value.strip()
-    return config
+                values[key.strip()] = value.strip()
 
+        pat = values.get("GITHUB_PAT")
+        repo = values.get("REPO_URL")
+        if not pat or not repo:
+            return None
 
-def _prompt_required(prompt: str, error: str) -> str:
-    value = input(prompt).strip()
-    if not value:
-        die(error)
-    return value
+        return cls(
+            github_pat=pat,
+            repo_url=repo,
+            git_name=values.get("GIT_NAME", "yolo-cage"),
+            git_email=values.get("GIT_EMAIL", "yolo-cage@localhost"),
+            proxy_bypass=values.get("PROXY_BYPASS", ""),
+        )
 
+    def save(self, path: Path) -> None:
+        """Write to config.env file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "# yolo-cage configuration",
+            f"GITHUB_PAT={self.github_pat}",
+            f"REPO_URL={self.repo_url}",
+            f"GIT_NAME={self.git_name}",
+            f"GIT_EMAIL={self.git_email}",
+        ]
+        if self.proxy_bypass:
+            lines.append(f"PROXY_BYPASS={self.proxy_bypass}")
+        path.write_text("\n".join(lines) + "\n")
 
-def _prompt_optional(prompt: str, default: str) -> str:
-    return input(prompt).strip() or default
+    def validate(self) -> None:
+        """Validate GitHub access. Dies on failure."""
+        log_step("Validating repository access...")
+        valid, message = validate_github_repo(self.repo_url, self.github_pat)
+        if not valid:
+            die(message)
+        log_success(message)
 
+    @classmethod
+    def prompt(cls) -> "Config":
+        """Interactively prompt user for configuration."""
+        print("yolo-cage configuration\n")
 
-def _validate_repo_access(repo_url: str, pat: str) -> None:
-    log_step("Validating repository access...")
-    valid, message = validate_github_repo(repo_url, pat)
-    if not valid:
-        die(message)
-    log_success(message)
+        pat = input("GitHub PAT: ").strip()
+        if not pat:
+            die("GitHub PAT is required")
 
+        repo = input("Repository URL: ").strip()
+        if not repo:
+            die("Repository URL is required")
 
-def _write_config(path: Path, pat: str, repo: str, name: str, email: str, bypass: str) -> None:
-    with open(path, "w") as f:
-        f.write("# yolo-cage configuration\n")
-        f.write(f"GITHUB_PAT={pat}\n")
-        f.write(f"REPO_URL={repo}\n")
-        f.write(f"GIT_NAME={name}\n")
-        f.write(f"GIT_EMAIL={email}\n")
-        if bypass:
-            f.write(f"PROXY_BYPASS={bypass}\n")
-    log_success(f"Config written to {path}")
+        # Validate before asking for optional fields
+        log_step("Validating repository access...")
+        valid, message = validate_github_repo(repo, pat)
+        if not valid:
+            die(message)
+        log_success(message)
 
+        git_name = input("Git name [yolo-cage]: ").strip() or "yolo-cage"
+        git_email = input("Git email [yolo-cage@localhost]: ").strip() or "yolo-cage@localhost"
+        proxy_bypass = input("Proxy bypass domains (optional): ").strip()
 
-def prompt_config(config_path: Path) -> None:
-    """Interactively prompt for configuration."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    print("yolo-cage configuration\n")
-
-    pat = _prompt_required("GitHub PAT: ", "GitHub PAT is required")
-    repo = _prompt_required("Repository URL: ", "Repository URL is required")
-    _validate_repo_access(repo, pat)
-
-    name = _prompt_optional("Git name [yolo-cage]: ", "yolo-cage")
-    email = _prompt_optional("Git email [yolo-cage@localhost]: ", "yolo-cage@localhost")
-    bypass = input("Proxy bypass domains (optional): ").strip()
-
-    _write_config(config_path, pat, repo, name, email, bypass)
+        return cls(
+            github_pat=pat,
+            repo_url=repo,
+            git_name=git_name,
+            git_email=git_email,
+            proxy_bypass=proxy_bypass,
+        )

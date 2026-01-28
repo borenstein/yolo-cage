@@ -17,14 +17,14 @@ Sandboxed Claude Code agents. See [README.md](README.md) for full documentation.
 yolo_cage/              # Python package (CLI)
 ├── __init__.py         # Version constant
 ├── __main__.py         # Entry point
-├── cli.py              # Argument parsing, command routing
+├── cli.py              # Argument parsing, command handlers
+├── registry.py         # Registry - manages instances
+├── instance.py         # Instance - a named environment
+├── config.py           # Config - typed configuration
+├── vm.py               # VM - Vagrant operations
 ├── output.py           # Logging helpers
 ├── github.py           # GitHub URL parsing, validation
-├── config.py           # Configuration management
 ├── prerequisites.py    # Platform detection, dependency checks
-├── vm.py               # Vagrant VM operations
-├── instances.py        # Multi-instance management
-└── commands/           # Command implementations
 scripts/
 ├── build-zipapp.sh     # Build CLI as zipapp
 ├── yolo-cage           # Wrapper script (calls zipapp or package)
