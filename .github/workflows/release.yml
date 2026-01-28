@@ -5,7 +5,26 @@ on:
     branches: [main]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest pytest-mock
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -15,6 +34,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Need full history for tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Get merged PR labels
         id: pr
@@ -72,15 +96,10 @@ jobs:
           echo "version=$NEXT" >> $GITHUB_OUTPUT
           echo "Next version: $NEXT (bump: $BUMP)"
 
-      - name: Create release archive
+      - name: Build zipapp
         run: |
           VERSION="${{ steps.next.outputs.version }}"
-
-          # Create standalone yolo-cage script with version
-          mkdir -p dist
-          sed "s/YOLO_CAGE_VERSION=\"dev\"/YOLO_CAGE_VERSION=\"$VERSION\"/" \
-            scripts/yolo-cage > dist/yolo-cage
-          chmod +x dist/yolo-cage
+          ./scripts/build-zipapp.sh "$VERSION"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
