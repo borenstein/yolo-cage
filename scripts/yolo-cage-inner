@@ -45,7 +45,7 @@ cmd_create() {
         echo "Waiting for pod to be ready..."
         kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=120s
         echo ""
-        echo "Pod ready. Run: yolo-cage attach ${branch}"
+        echo "Pod ready."
     fi
 }
 

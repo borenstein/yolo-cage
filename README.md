@@ -96,8 +96,27 @@ One sandbox per branch. Agents can only push to their assigned branch. All outbo
 | `delete <branch>` | Delete sandbox |
 | `port-forward <branch> <port>` | Forward port from sandbox |
 | `up` / `down` | Start/stop VM |
+| `status` | Show VM and pod status |
+| `configure` | Update and sync configuration |
+| `instances` | List all instances |
+| `set-default <name>` | Set default instance |
 | `upgrade [--rebuild]` | Upgrade to latest version |
 | `version` | Show version |
+
+### Multiple instances
+
+Run multiple VMs targeting different repositories:
+
+```bash
+yolo-cage build --instance=project-a --interactive --up
+yolo-cage build --instance=project-b --interactive --up
+yolo-cage instances                      # project-a *, project-b
+yolo-cage set-default project-b
+yolo-cage create my-branch               # Uses project-b
+yolo-cage -I project-a create feature    # Uses project-a
+```
+
+Use `-I`/`--instance` before any command to target a specific instance.
 
 ### Port forwarding
 
