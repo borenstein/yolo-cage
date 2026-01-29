@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .output import die, log_step, log_success
+from .errors import VMNotRunning, VMNotFound
 
 
 class VM:
@@ -61,33 +61,18 @@ class VM:
             cwd=self.repo_dir,
         )
 
-    def sync_config(self, config_path: Path) -> None:
-        """Copy config to VM and apply it."""
-        log_step("Syncing configuration to VM...")
-        self.ssh("mkdir -p ~/.yolo-cage")
-
-        subprocess.run(
-            ["vagrant", "ssh", "-c", "cat > ~/.yolo-cage/config.env"],
-            cwd=self.repo_dir,
-            input=config_path.read_text(),
-            text=True,
-            check=True,
-        )
-
-        log_step("Applying configuration...")
-        self.ssh("yolo-cage-configure")
-
     def require_running(self) -> None:
-        """Die if VM is not running."""
+        """Raise VMNotRunning if VM is not running."""
         if self.status != "running":
-            die("VM is not running. Start with 'yolo-cage up'.")
+            raise VMNotRunning("VM is not running. Start with 'yolo-cage up'.")
 
     def require_exists(self) -> None:
-        """Die if repo directory doesn't exist."""
+        """Raise VMNotFound if repo directory doesn't exist."""
         if not self.repo_dir.exists():
-            die(f"Repository not found at {self.repo_dir}. Run 'yolo-cage build' first.")
+            raise VMNotFound(f"Repository not found at {self.repo_dir}. Run 'yolo-cage build' first.")
 
     def _provider_args(self) -> list[str]:
+        """Return provider arguments for vagrant up."""
         if sys.platform == "darwin":
             return ["--provider=qemu"]
         return []

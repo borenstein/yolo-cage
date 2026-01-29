@@ -2,14 +2,10 @@
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
+from .errors import InstanceNotFound, InstanceExists, NoDefaultInstance
 from .instance import Instance
-from .output import die, log_step, log_success
-
-
-YOLO_CAGE_REPO = "https://github.com/borenstein/yolo-cage.git"
 
 
 class Registry:
@@ -17,7 +13,6 @@ class Registry:
 
     def __init__(self, base_dir: Path | None = None):
         self.base_dir = base_dir or self._default_base_dir()
-        self._migrate_if_needed()
 
     @staticmethod
     def _default_base_dir() -> Path:
@@ -38,12 +33,12 @@ class Registry:
         return instances
 
     def get(self, name: str) -> Instance | None:
-        """Get instance by name."""
+        """Get instance by name. Returns None if not found."""
         return Instance.load(name, self.base_dir)
 
     @property
     def default_name(self) -> str | None:
-        """Name of the default instance."""
+        """Name of the default instance, or None."""
         default_file = self.base_dir / "default"
         if not default_file.exists():
             return None
@@ -54,18 +49,18 @@ class Registry:
         return None
 
     def set_default(self, name: str) -> None:
-        """Set the default instance."""
+        """Set the default instance. Raises InstanceNotFound if invalid."""
         if not self.get(name):
-            die(f"Instance '{name}' does not exist.")
+            raise InstanceNotFound(f"Instance '{name}' does not exist.")
         self.base_dir.mkdir(parents=True, exist_ok=True)
         (self.base_dir / "default").write_text(name + "\n")
 
     def resolve(self, name: str | None) -> Instance:
-        """Resolve instance by name or default. Dies if not found."""
+        """Resolve instance by name or default. Raises if not found."""
         if name:
             instance = self.get(name)
             if not instance:
-                die(f"Instance '{name}' does not exist.")
+                raise InstanceNotFound(f"Instance '{name}' does not exist.")
             return instance
 
         if self.default_name:
@@ -74,27 +69,24 @@ class Registry:
         instances = self.list()
         if instances:
             names = [i.name for i in instances]
-            die(
+            raise NoDefaultInstance(
                 f"No default instance. Use -I <name> or 'yolo-cage set-default <name>'.\n"
                 f"Available: {', '.join(names)}"
             )
-        die("No instances found. Run 'yolo-cage build' first.")
+
+        raise InstanceNotFound("No instances found. Run 'yolo-cage build' first.")
 
     def create(self, name: str, repo_path: Path | None = None) -> Instance:
-        """Create a new instance."""
+        """Create a new instance. Raises InstanceExists if name taken."""
         if self.get(name):
-            die(f"Instance '{name}' already exists.")
+            raise InstanceExists(f"Instance '{name}' already exists.")
 
         instance = Instance(name, self.base_dir, repo_path)
         instance.save()
-
-        if repo_path is None:
-            self._clone_repo(instance)
-
         return instance
 
     def delete(self, name: str) -> None:
-        """Delete an instance."""
+        """Delete an instance and clear default if needed."""
         instance = self.get(name)
         if not instance:
             return
@@ -108,7 +100,7 @@ class Registry:
                 default_file.unlink()
 
     def detect_local_repo(self) -> Path | None:
-        """Detect if running from a local yolo-cage repo."""
+        """Detect if running from a local yolo-cage checkout."""
         try:
             script_path = Path(__file__).resolve()
             potential = script_path.parent.parent
@@ -128,24 +120,13 @@ class Registry:
                 return True
         return False
 
-    def _clone_repo(self, instance: Instance) -> None:
-        repo_dir = instance.dir / "repo"
-        if repo_dir.exists():
-            return
-
-        log_step("Cloning yolo-cage repository...")
-        subprocess.run(["git", "clone", YOLO_CAGE_REPO, str(repo_dir)], check=True)
-        log_success("Repository cloned")
-
-    def _migrate_if_needed(self) -> None:
-        """Migrate legacy layout if present."""
+    def migrate_if_needed(self) -> bool:
+        """Migrate legacy layout if present. Returns True if migrated."""
         old_config = self.base_dir / "config.env"
         instances_dir = self.base_dir / "instances"
 
         if not old_config.exists() or instances_dir.exists():
-            return
-
-        log_step("Migrating to new instance layout...")
+            return False
 
         default_dir = instances_dir / "default"
         default_dir.mkdir(parents=True)
@@ -159,4 +140,4 @@ class Registry:
         (default_dir / "instance.json").write_text('{"repo_path": null}\n')
         (self.base_dir / "default").write_text("default\n")
 
-        log_success("Migrated to instances/default/")
+        return True

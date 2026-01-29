@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 
 from yolo_cage.registry import Registry
+from yolo_cage.errors import InstanceNotFound, InstanceExists, NoDefaultInstance
 
 
 class TestRegistryList:
@@ -80,9 +81,9 @@ class TestRegistryDefault:
         registry.set_default("test")
         assert registry.default_name == "test"
 
-    def test_set_default_nonexistent_dies(self, tmp_yolo_home):
+    def test_set_default_nonexistent_raises(self, tmp_yolo_home):
         registry = Registry()
-        with pytest.raises(SystemExit):
+        with pytest.raises(InstanceNotFound):
             registry.set_default("nonexistent")
 
 
@@ -98,9 +99,9 @@ class TestRegistryResolve:
         instance = registry.resolve("test")
         assert instance.name == "test"
 
-    def test_explicit_nonexistent_dies(self, tmp_yolo_home):
+    def test_explicit_nonexistent_raises(self, tmp_yolo_home):
         registry = Registry()
-        with pytest.raises(SystemExit):
+        with pytest.raises(InstanceNotFound):
             registry.resolve("nonexistent")
 
     def test_uses_default(self, tmp_yolo_home):
@@ -113,18 +114,18 @@ class TestRegistryResolve:
         instance = registry.resolve(None)
         assert instance.name == "mydefault"
 
-    def test_no_default_with_instances_dies(self, tmp_yolo_home):
+    def test_no_default_with_instances_raises(self, tmp_yolo_home):
         inst_dir = tmp_yolo_home / "instances" / "orphan"
         inst_dir.mkdir(parents=True)
         (inst_dir / "instance.json").write_text("{}")
 
         registry = Registry()
-        with pytest.raises(SystemExit):
+        with pytest.raises(NoDefaultInstance):
             registry.resolve(None)
 
-    def test_no_instances_dies(self, tmp_yolo_home):
+    def test_no_instances_raises(self, tmp_yolo_home):
         registry = Registry()
-        with pytest.raises(SystemExit):
+        with pytest.raises(InstanceNotFound):
             registry.resolve(None)
 
 
@@ -142,13 +143,13 @@ class TestRegistryCreate:
         assert instance.exists()
         assert instance._repo_path == local_repo
 
-    def test_create_existing_dies(self, tmp_yolo_home):
+    def test_create_existing_raises(self, tmp_yolo_home):
         inst_dir = tmp_yolo_home / "instances" / "test"
         inst_dir.mkdir(parents=True)
         (inst_dir / "instance.json").write_text("{}")
 
         registry = Registry()
-        with pytest.raises(SystemExit):
+        with pytest.raises(InstanceExists):
             registry.create("test")
 
 
@@ -193,12 +194,17 @@ class TestRegistryMigration:
         (tmp_yolo_home / "instances").mkdir()
         (tmp_yolo_home / "config.env").write_text("OLD=config")
 
-        Registry()  # Migration runs in __init__
+        registry = Registry()
+        result = registry.migrate_if_needed()
 
+        assert result is False
         assert (tmp_yolo_home / "config.env").exists()
 
     def test_no_migration_if_no_old_config(self, tmp_yolo_home):
-        Registry()
+        registry = Registry()
+        result = registry.migrate_if_needed()
+
+        assert result is False
         assert not (tmp_yolo_home / "instances").exists()
 
     def test_migrates_config_and_repo(self, tmp_yolo_home):
@@ -207,7 +213,9 @@ class TestRegistryMigration:
         (tmp_yolo_home / "repo" / "Vagrantfile").touch()
 
         registry = Registry()
+        result = registry.migrate_if_needed()
 
+        assert result is True
         default_dir = tmp_yolo_home / "instances" / "default"
         assert (default_dir / "config.env").read_text() == "KEY=value"
         assert (default_dir / "repo" / "Vagrantfile").exists()
