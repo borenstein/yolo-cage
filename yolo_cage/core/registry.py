@@ -4,7 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .errors import InstanceNotFound, InstanceExists, NoDefaultInstance
+from ..errors import InstanceNotFound, InstanceExists, NoDefaultInstance
 from .instance import Instance
 
 
@@ -103,7 +103,8 @@ class Registry:
         """Detect if running from a local yolo-cage checkout."""
         try:
             script_path = Path(__file__).resolve()
-            potential = script_path.parent.parent
+            # Go up from core/registry.py -> core -> yolo_cage -> repo root
+            potential = script_path.parent.parent.parent
             if (potential / "Vagrantfile").exists():
                 return potential
         except (NameError, TypeError):

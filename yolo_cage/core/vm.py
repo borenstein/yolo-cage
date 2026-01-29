@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .errors import VMNotRunning, VMNotFound
+from ..errors import VMNotRunning, VMNotFound
 
 
 class VM:

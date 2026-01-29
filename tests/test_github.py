@@ -1,7 +1,7 @@
 """Tests for GitHub module."""
 
 import pytest
-from yolo_cage.github import parse_github_repo
+from yolo_cage.ops.github import parse_github_repo
 
 
 class TestParseGithubRepo:

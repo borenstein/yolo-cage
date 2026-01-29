@@ -1,18 +1,15 @@
-"""Command-line interface for yolo-cage."""
+"""Command handlers for yolo-cage CLI."""
 
-import argparse
 import subprocess
 import sys
 from pathlib import Path
 
-from . import __version__
-from . import services
-from .config import Config
-from .errors import YoloCageError, PrerequisitesMissing
-from .github import validate_github_repo
-from .output import die, log_step, log_success, YELLOW, NC
-from .prerequisites import format_install_instructions
-from .registry import Registry
+from .. import __version__
+from ..core import Config
+from ..ops import build, upgrade_cli, upgrade_repo, rebuild_vm, sync_config, validate_config
+from ..output import die, log_step, log_success, YELLOW, NC
+
+from .prompts import prompt_config
 
 
 COMMANDS = {}
@@ -26,122 +23,6 @@ def command(name, requires=None, aliases=()):
             COMMANDS[alias] = (fn, requires)
         return fn
     return decorator
-
-
-def main() -> None:
-    """Main entry point."""
-    args = parse_args()
-    if not args.command:
-        args.parser.print_help()
-        sys.exit(0)
-
-    handler, requires = COMMANDS[args.command]
-    registry = Registry()
-
-    if registry.migrate_if_needed():
-        log_success("Migrated to instances/default/")
-
-    instance = None
-    try:
-        if requires:
-            instance = registry.resolve(args.instance)
-            if requires == "exists":
-                instance.vm.require_exists()
-            elif requires == "running":
-                instance.vm.require_running()
-
-        handler(args, registry, instance)
-
-    except PrerequisitesMissing as e:
-        print(format_install_instructions(e.missing))
-        sys.exit(1)
-    except YoloCageError as e:
-        die(str(e))
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    p = argparse.ArgumentParser(prog="yolo-cage", description="Sandboxed Claude Code agents")
-    p.add_argument("--version", "-v", action="version", version=f"yolo-cage {__version__}")
-    p.add_argument("-I", "--instance", metavar="NAME", help="Target instance")
-
-    sub = p.add_subparsers(dest="command", metavar="<command>")
-
-    sub.add_parser("version", help="Show version")
-    sub.add_parser("instances", help="List all instances")
-
-    add = sub.add_parser("set-default", help="Set the default instance")
-    add.add_argument("name", help="Instance name")
-
-    add = sub.add_parser("build", help="Set up yolo-cage (clone repo, build VM)")
-    add.add_argument("--config-file", metavar="FILE", help="Path to config.env")
-    add.add_argument("--interactive", action="store_true", help="Prompt for config")
-    add.add_argument("--up", action="store_true", help="Keep VM running after build")
-
-    add = sub.add_parser("upgrade", help="Upgrade to latest version")
-    add.add_argument("--rebuild", action="store_true", help="Rebuild VM after upgrade")
-
-    sub.add_parser("up", help="Start the VM", aliases=["start"])
-    sub.add_parser("down", help="Stop the VM", aliases=["stop", "halt"])
-    sub.add_parser("destroy", help="Destroy the VM")
-    sub.add_parser("status", help="Show VM and pod status")
-
-    add = sub.add_parser("configure", help="Update configuration")
-    add.add_argument("--interactive", "-i", action="store_true", help="Prompt for config")
-
-    for cmd_name, aliases, help_text in [
-        ("create", [], "Create a sandbox pod"),
-        ("attach", [], "Start interactive Claude session"),
-        ("shell", ["sh"], "Open shell in sandbox"),
-        ("delete", ["rm"], "Delete a sandbox pod"),
-        ("logs", [], "Tail pod logs"),
-    ]:
-        add = sub.add_parser(cmd_name, help=help_text, aliases=aliases)
-        add.add_argument("branch", help="Git branch name")
-        if cmd_name == "delete":
-            add.add_argument("--clean", action="store_true", help="Delete workspace files")
-
-    sub.add_parser("list", help="List sandbox pods", aliases=["ls"])
-
-    add = sub.add_parser("port-forward", help="Forward port from sandbox")
-    add.add_argument("branch", help="Git branch name")
-    add.add_argument("port", help="PORT or LOCAL:POD")
-    add.add_argument("--bind", default="127.0.0.1", metavar="ADDR", help="Bind address")
-
-    args = p.parse_args()
-    args.parser = p
-    return args
-
-
-def prompt_config() -> Config:
-    """Prompt user for configuration interactively."""
-    print("yolo-cage configuration\n")
-
-    pat = input("GitHub PAT: ").strip()
-    if not pat:
-        die("GitHub PAT is required")
-
-    repo = input("Repository URL: ").strip()
-    if not repo:
-        die("Repository URL is required")
-
-    log_step("Validating repository access...")
-    valid, message = validate_github_repo(repo, pat)
-    if not valid:
-        die(message)
-    log_success(message)
-
-    git_name = input("Git name [yolo-cage]: ").strip() or "yolo-cage"
-    git_email = input("Git email [yolo-cage@localhost]: ").strip() or "yolo-cage@localhost"
-    proxy_bypass = input("Proxy bypass domains (optional): ").strip()
-
-    return Config(
-        github_pat=pat,
-        repo_url=repo,
-        git_name=git_name,
-        git_email=git_email,
-        proxy_bypass=proxy_bypass,
-    )
 
 
 # --- Global commands ---
@@ -197,7 +78,7 @@ def cmd_build(args, registry, instance):
         log_step("Local repo already in use, cloning instead...")
 
     log_step("Building VM (this may take a while)...")
-    inst = services.build(registry, args.instance, config, args.up)
+    inst = build(registry, args.instance, config, args.up)
 
     if args.up:
         log_success("VM built and running!")
@@ -210,19 +91,19 @@ def cmd_build(args, registry, instance):
 @command("upgrade")
 def cmd_upgrade(args, registry, instance):
     log_step("Downloading latest CLI...")
-    services.upgrade_cli(Path("/usr/local/bin/yolo-cage"))
+    upgrade_cli(Path("/usr/local/bin/yolo-cage"))
     log_success("CLI updated")
 
     inst = registry.get(args.instance or registry.default_name)
     if inst:
-        if services.upgrade_repo(inst):
+        if upgrade_repo(inst):
             log_success(f"Repository updated for '{inst.name}'")
         else:
             print(f"Skipping repo update for '{inst.name}' (local repo)")
 
         if args.rebuild:
             log_step(f"Rebuilding VM for '{inst.name}'...")
-            services.rebuild_vm(inst)
+            rebuild_vm(inst)
             log_success("VM rebuilt")
 
 
@@ -274,12 +155,12 @@ def cmd_configure(args, registry, instance):
         config = instance.config
         if not config:
             die(f"No config at {instance.config_path}. Use --interactive.")
-        services.validate_config(config)
+        validate_config(config)
         log_success("Config validated")
 
     if instance.vm.status == "running":
         log_step("Syncing configuration to VM...")
-        services.sync_config(instance)
+        sync_config(instance)
         log_success("Config synced")
     else:
         print("VM not running. Config will apply on next 'yolo-cage up'.")
@@ -292,7 +173,7 @@ def cmd_create(args, registry, instance):
     config = instance.config
     if not config:
         die("Missing configuration. Run 'yolo-cage configure'.")
-    services.validate_config(config)
+    validate_config(config)
     log_success("Config validated")
 
     instance.vm.ssh(f"yolo-cage-inner create '{args.branch}'")
@@ -353,7 +234,3 @@ def cmd_port_forward(args, registry, instance):
         subprocess.call(ssh_cmd, cwd=instance.repo_dir)
     except KeyboardInterrupt:
         print("\nPort forwarding stopped.")
-
-
-if __name__ == "__main__":
-    main()

@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 
-from yolo_cage.instance import Instance
+from yolo_cage.core.instance import Instance
 
 
 class TestInstancePaths:

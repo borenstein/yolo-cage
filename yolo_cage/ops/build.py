@@ -1,14 +1,12 @@
-"""Application services - use case orchestration."""
+"""Build workflow for yolo-cage instances."""
 
 import subprocess
 from pathlib import Path
 
-from .config import Config
-from .errors import ConfigError, GitHubAccessError, PrerequisitesMissing
-from .github import validate_github_repo
-from .instance import Instance
+from ..core import Config, Instance, Registry
+from ..errors import ConfigError, PrerequisitesMissing
+from .github import validate_config
 from .prerequisites import check_dependencies
-from .registry import Registry
 
 
 YOLO_CAGE_REPO = "https://github.com/borenstein/yolo-cage.git"
@@ -25,7 +23,6 @@ def build(
 
     Orchestrates: prerequisites, instance creation, repo cloning, VM setup.
     Returns the created instance.
-    Raises on any failure.
     """
     missing = check_dependencies()
     if missing:
@@ -67,49 +64,14 @@ def build(
     return instance
 
 
-def upgrade_cli(target_path: Path) -> None:
-    """Download and install latest CLI binary."""
-    import os
-    import tempfile
-    import urllib.request
-
-    cli_url = "https://github.com/borenstein/yolo-cage/releases/latest/download/yolo-cage"
-
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        try:
-            urllib.request.urlretrieve(cli_url, tmp.name)
-            os.chmod(tmp.name, 0o755)
-            subprocess.run(["sudo", "cp", tmp.name, str(target_path)], check=True)
-        finally:
-            os.unlink(tmp.name)
-
-
-def upgrade_repo(instance: Instance) -> bool:
-    """Update instance repo from origin. Returns True if updated."""
-    if instance._repo_path:
-        return False  # Local repo, skip
-
-    if not instance.repo_dir.exists():
-        return False
-
+def clone_repo(target_dir: Path) -> None:
+    """Clone yolo-cage repository to target directory."""
+    if target_dir.exists():
+        return
     subprocess.run(
-        ["git", "fetch", "origin"],
-        cwd=instance.repo_dir,
-        capture_output=True,
+        ["git", "clone", YOLO_CAGE_REPO, str(target_dir)],
+        check=True,
     )
-    subprocess.run(
-        ["git", "reset", "--hard", "origin/main"],
-        cwd=instance.repo_dir,
-        capture_output=True,
-    )
-    return True
-
-
-def rebuild_vm(instance: Instance) -> None:
-    """Destroy and rebuild VM, then sync config."""
-    instance.vm.destroy()
-    instance.vm.start()
-    sync_config(instance)
 
 
 def sync_config(instance: Instance) -> None:
@@ -128,20 +90,3 @@ def sync_config(instance: Instance) -> None:
     )
 
     instance.vm.ssh("yolo-cage-configure")
-
-
-def clone_repo(target_dir: Path) -> None:
-    """Clone yolo-cage repository to target directory."""
-    if target_dir.exists():
-        return
-    subprocess.run(
-        ["git", "clone", YOLO_CAGE_REPO, str(target_dir)],
-        check=True,
-    )
-
-
-def validate_config(config: Config) -> None:
-    """Validate GitHub access. Raises GitHubAccessError on failure."""
-    valid, message = validate_github_repo(config.repo_url, config.github_pat)
-    if not valid:
-        raise GitHubAccessError(message)

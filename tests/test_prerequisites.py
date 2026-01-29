@@ -4,7 +4,7 @@ import pytest
 import sys
 from unittest.mock import patch, MagicMock
 
-from yolo_cage.prerequisites import check_dependencies, format_install_instructions
+from yolo_cage.ops.prerequisites import check_dependencies, format_install_instructions
 
 
 class TestCheckDependencies:

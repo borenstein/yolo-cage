@@ -57,3 +57,12 @@ def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
         return _handle_http_error(e, owner, repo)
     except urllib.error.URLError as e:
         return False, f"Could not connect to GitHub: {e.reason}"
+
+
+def validate_config(config) -> None:
+    """Validate GitHub access for a Config. Raises GitHubAccessError on failure."""
+    from ..errors import GitHubAccessError
+
+    valid, message = validate_github_repo(config.repo_url, config.github_pat)
+    if not valid:
+        raise GitHubAccessError(message)

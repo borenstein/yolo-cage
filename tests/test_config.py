@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from yolo_cage.config import Config
+from yolo_cage.core.config import Config
 
 
 class TestConfigLoad:

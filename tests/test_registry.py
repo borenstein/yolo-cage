@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 
-from yolo_cage.registry import Registry
+from yolo_cage.core.registry import Registry
 from yolo_cage.errors import InstanceNotFound, InstanceExists, NoDefaultInstance
 
 
