@@ -16,7 +16,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-YOLO_CAGE_VERSION="dev"  # Replaced by release workflow
+YOLO_CAGE_VERSION = "dev"  # Replaced by release workflow
 YOLO_CAGE_HOME = Path(os.environ.get("YOLO_CAGE_HOME", Path.home() / ".yolo-cage"))
 YOLO_CAGE_REPO = "https://github.com/borenstein/yolo-cage.git"
 
@@ -44,22 +44,209 @@ def die(msg: str) -> None:
     sys.exit(1)
 
 
+# =============================================================================
+# Instance and Registry (embedded for standalone CLI)
+# =============================================================================
+
+
+class Instance:
+    """A named, self-contained yolo-cage environment."""
+
+    def __init__(self, name: str, home: Path, repo_path: Path | None = None):
+        self.name = name
+        self.home = home
+        self.repo_path = repo_path
+
+    @property
+    def dir(self) -> Path:
+        """Instance directory: ~/.yolo-cage/instances/<name>/"""
+        return self.home / "instances" / self.name
+
+    @property
+    def config_path(self) -> Path:
+        """Path to config.env file."""
+        return self.dir / "config.env"
+
+    @property
+    def repo_dir(self) -> Path:
+        """System repository directory."""
+        if self.repo_path:
+            return self.repo_path
+        return self.dir / "repo"
+
+    @property
+    def instance_json_path(self) -> Path:
+        """Path to instance.json metadata file."""
+        return self.dir / "instance.json"
+
+    def exists(self) -> bool:
+        """Check if this instance exists on disk."""
+        return self.dir.is_dir()
+
+    def save(self) -> None:
+        """Write instance metadata to instance.json."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        metadata = {"repo_path": str(self.repo_path) if self.repo_path else None}
+        with open(self.instance_json_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+            f.write("\n")
+
+    @classmethod
+    def load(cls, name: str, home: Path) -> "Instance | None":
+        """Load an instance from disk."""
+        instance_dir = home / "instances" / name
+        if not instance_dir.is_dir():
+            return None
+
+        instance_json = instance_dir / "instance.json"
+        repo_path = None
+
+        if instance_json.exists():
+            with open(instance_json) as f:
+                metadata = json.load(f)
+                repo_path_str = metadata.get("repo_path")
+                if repo_path_str:
+                    repo_path = Path(repo_path_str)
+
+        return cls(name=name, home=home, repo_path=repo_path)
+
+
+class Registry:
+    """Manages all yolo-cage instances on the host."""
+
+    def __init__(self, home: Path | None = None):
+        self.home = home or YOLO_CAGE_HOME
+
+    @property
+    def instances_dir(self) -> Path:
+        return self.home / "instances"
+
+    @property
+    def default_file(self) -> Path:
+        return self.home / "default"
+
+    def list(self) -> list[Instance]:
+        """List all instances."""
+        if not self.instances_dir.is_dir():
+            return []
+
+        instances = []
+        for entry in self.instances_dir.iterdir():
+            if entry.is_dir():
+                instance = Instance.load(entry.name, self.home)
+                if instance:
+                    instances.append(instance)
+
+        return sorted(instances, key=lambda i: i.name)
+
+    def get(self, name: str) -> Instance | None:
+        """Get an instance by name."""
+        return Instance.load(name, self.home)
+
+    def resolve(self, name: str | None) -> Instance:
+        """Resolve to a specific instance using least-astonishment rules."""
+        if name:
+            instance = self.get(name)
+            if not instance:
+                die(f"Instance not found: {name}")
+            return instance
+
+        instances = self.list()
+
+        if not instances:
+            die("No instances found. Run 'yolo-cage build' to create one.")
+
+        if len(instances) == 1:
+            return instances[0]
+
+        # Multiple instances - check for default
+        default_name = self.default
+        if default_name:
+            for instance in instances:
+                if instance.name == default_name:
+                    return instance
+
+        # Ambiguous
+        instance_list = ", ".join(i.name for i in instances)
+        die(
+            f"Multiple instances exist ({instance_list}). "
+            f"Use '-I <name>' or 'yolo-cage set-default <name>'."
+        )
+
+    def create(self, name: str, repo_path: Path | None = None) -> Instance:
+        """Create a new instance."""
+        if self.get(name):
+            die(f"Instance already exists: {name}")
+
+        instance = Instance(name=name, home=self.home, repo_path=repo_path)
+        instance.save()
+        return instance
+
+    def delete(self, name: str) -> None:
+        """Delete an instance."""
+        instance = self.get(name)
+        if not instance:
+            die(f"Instance not found: {name}")
+
+        if instance.dir.exists():
+            shutil.rmtree(instance.dir)
+
+        if self.default == name and self.default_file.exists():
+            self.default_file.unlink()
+
+    @property
+    def default(self) -> str | None:
+        """Get the default instance name."""
+        if not self.default_file.exists():
+            return None
+        return self.default_file.read_text().strip() or None
+
+    def set_default(self, name: str) -> None:
+        """Set the default instance."""
+        if not self.get(name):
+            die(f"Instance not found: {name}")
+
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.default_file.write_text(name + "\n")
+
+    def migrate_legacy(self) -> bool:
+        """Migrate old single-instance layout to multi-instance."""
+        old_config = self.home / "config.env"
+        old_repo = self.home / "repo"
+
+        if not old_config.exists() and not old_repo.exists():
+            return False
+
+        if self.instances_dir.exists() and list(self.instances_dir.iterdir()):
+            return False
+
+        default_dir = self.instances_dir / "default"
+        default_dir.mkdir(parents=True, exist_ok=True)
+
+        if old_config.exists():
+            shutil.move(str(old_config), str(default_dir / "config.env"))
+
+        if old_repo.exists():
+            shutil.move(str(old_repo), str(default_dir / "repo"))
+
+        instance = Instance(name="default", home=self.home, repo_path=None)
+        instance.save()
+        self.set_default("default")
+
+        return True
+
+
+# =============================================================================
+# GitHub Utilities
+# =============================================================================
+
+
 def parse_github_repo(repo_url: str) -> tuple[str, str] | None:
-    """Extract owner and repo name from a GitHub URL.
-
-    Supports:
-      - https://github.com/owner/repo
-      - https://github.com/owner/repo.git
-      - git@github.com:owner/repo.git
-
-    Returns (owner, repo) or None if not a valid GitHub URL.
-    """
-    # HTTPS format
+    """Extract owner and repo name from a GitHub URL."""
     match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo_url)
     if match:
         return match.group(1), match.group(2)
 
-    # SSH format
     match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
     if match:
         return match.group(1), match.group(2)
@@ -68,10 +255,7 @@ def parse_github_repo(repo_url: str) -> tuple[str, str] | None:
 
 
 def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
-    """Check if a GitHub repository is accessible with the given PAT.
-
-    Returns (success, message) tuple.
-    """
+    """Check if a GitHub repository is accessible with the given PAT."""
     parsed = parse_github_repo(repo_url)
     if not parsed:
         return False, f"Could not parse GitHub URL: {repo_url}"
@@ -87,14 +271,17 @@ def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            # Check if we have push access
             permissions = data.get("permissions", {})
             if not permissions.get("push"):
                 return False, f"PAT does not have push access to {owner}/{repo}"
             return True, f"Repository {owner}/{repo} is accessible"
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return False, f"Repository not found: {owner}/{repo}\nCheck that the repository exists and your PAT has access to it."
+            return (
+                False,
+                f"Repository not found: {owner}/{repo}\n"
+                f"Check that the repository exists and your PAT has access to it.",
+            )
         elif e.code == 401:
             return False, "Invalid GitHub PAT or PAT has expired."
         elif e.code == 403:
@@ -107,15 +294,26 @@ def validate_github_repo(repo_url: str, pat: str) -> tuple[bool, str]:
         return False, f"Unexpected error validating repository: {e}"
 
 
-def detect_repo_dir() -> Path | None:
+# =============================================================================
+# VM Utilities
+# =============================================================================
+
+
+def detect_repo_dir_for_instance(instance: Instance) -> Path | None:
+    """Get the repository directory for an instance."""
+    repo_dir = instance.repo_dir
+    if repo_dir.is_dir() and (repo_dir / "Vagrantfile").exists():
+        return repo_dir
+    return None
+
+
+def detect_repo_dir_from_script() -> Path | None:
     """Check if running from within the repo (development mode)."""
     script_dir = Path(__file__).resolve().parent
     repo_dir = script_dir.parent
 
     if (repo_dir / "Vagrantfile").exists():
         return repo_dir
-    elif (YOLO_CAGE_HOME / "repo").is_dir():
-        return YOLO_CAGE_HOME / "repo"
     return None
 
 
@@ -138,7 +336,6 @@ def check_prerequisites() -> None:
         missing.append("git")
 
     if is_macos:
-        # macOS requires QEMU + vagrant-qemu plugin
         result = subprocess.run(
             ["brew", "list", "--formula"],
             capture_output=True,
@@ -148,7 +345,6 @@ def check_prerequisites() -> None:
         if "qemu" not in installed_formulas:
             missing.append("qemu")
 
-        # Check for vagrant-qemu plugin
         if shutil.which("vagrant"):
             result = subprocess.run(
                 ["vagrant", "plugin", "list"],
@@ -158,13 +354,11 @@ def check_prerequisites() -> None:
             if "vagrant-qemu" not in result.stdout:
                 missing.append("vagrant-qemu plugin")
     else:
-        # On Linux, check for libvirtd or VirtualBox
         has_vbox = shutil.which("VBoxManage") is not None
         has_libvirt = shutil.which("libvirtd") is not None
         if not has_libvirt and not has_vbox:
             missing.append("libvirt (or VirtualBox)")
 
-        # Check for vagrant-libvirt plugin if using libvirt
         if shutil.which("vagrant") and has_libvirt:
             result = subprocess.run(
                 ["vagrant", "plugin", "list"],
@@ -187,24 +381,26 @@ def check_prerequisites() -> None:
             print("    vagrant plugin install vagrant-qemu")
         else:
             print("  Ubuntu/Debian:")
-            print("    sudo apt install vagrant vagrant-libvirt qemu-kvm libvirt-daemon-system")
+            print(
+                "    sudo apt install vagrant vagrant-libvirt qemu-kvm libvirt-daemon-system"
+            )
             print()
             print("  Fedora:")
             print("    sudo dnf install vagrant vagrant-libvirt qemu-kvm libvirt")
         sys.exit(1)
 
 
-def ensure_repo() -> Path:
-    """Return repo directory, or exit if not found."""
-    repo_dir = detect_repo_dir()
+def ensure_repo(instance: Instance) -> Path:
+    """Return repo directory for instance, or exit if not found."""
+    repo_dir = detect_repo_dir_for_instance(instance)
     if not repo_dir:
-        die("yolo-cage repository not found. Run 'yolo-cage build' first.")
+        die(f"yolo-cage repository not found for instance '{instance.name}'. Run 'yolo-cage build' first.")
     return repo_dir
 
 
-def ensure_vm_running() -> None:
-    """Exit if VM is not running."""
-    repo_dir = ensure_repo()
+def ensure_vm_running(instance: Instance) -> None:
+    """Exit if VM is not running for instance."""
+    repo_dir = ensure_repo(instance)
 
     result = subprocess.run(
         ["vagrant", "status", "--machine-readable"],
@@ -220,7 +416,7 @@ def ensure_vm_running() -> None:
             break
 
     if status != "running":
-        die("VM is not running. Start with 'yolo-cage up'.")
+        die(f"VM is not running for instance '{instance.name}'. Start with 'yolo-cage up'.")
 
 
 def vagrant_ssh(repo_dir: Path, command: str, interactive: bool = False) -> int:
@@ -237,14 +433,13 @@ def vagrant_ssh(repo_dir: Path, command: str, interactive: bool = False) -> int:
         )
 
 
-def load_config() -> dict[str, str]:
-    """Load configuration from config.env file."""
-    config_path = YOLO_CAGE_HOME / "config.env"
-    if not config_path.exists():
+def load_config_from_instance(instance: Instance) -> dict[str, str]:
+    """Load configuration from instance's config.env file."""
+    if not instance.config_path.exists():
         return {}
 
     config = {}
-    with open(config_path) as f:
+    with open(instance.config_path) as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
@@ -253,9 +448,9 @@ def load_config() -> dict[str, str]:
     return config
 
 
-def prompt_config() -> None:
+def prompt_config(instance: Instance) -> None:
     """Interactively prompt for configuration."""
-    YOLO_CAGE_HOME.mkdir(parents=True, exist_ok=True)
+    instance.dir.mkdir(parents=True, exist_ok=True)
 
     print("yolo-cage configuration")
     print()
@@ -268,7 +463,6 @@ def prompt_config() -> None:
     if not repo_url:
         die("Repository URL is required")
 
-    # Validate repository access before continuing
     log_step("Validating repository access...")
     valid, message = validate_github_repo(repo_url, github_pat)
     if not valid:
@@ -281,14 +475,13 @@ def prompt_config() -> None:
     claude_oauth = input("Claude OAuth token (optional, press Enter to skip): ").strip()
     proxy_bypass = input("Proxy bypass domains (optional, comma-separated): ").strip()
 
-    config_path = YOLO_CAGE_HOME / "config.env"
-    with open(config_path, "w") as f:
-        f.write(f"# yolo-cage configuration\n")
-        f.write(f"# Generated by yolo-cage build --interactive\n\n")
-        f.write(f"# Required\n")
+    with open(instance.config_path, "w") as f:
+        f.write("# yolo-cage configuration\n")
+        f.write(f"# Instance: {instance.name}\n\n")
+        f.write("# Required\n")
         f.write(f"GITHUB_PAT={github_pat}\n")
         f.write(f"REPO_URL={repo_url}\n\n")
-        f.write(f"# Git identity\n")
+        f.write("# Git identity\n")
         f.write(f"GIT_NAME={git_name}\n")
         f.write(f"GIT_EMAIL={git_email}\n")
 
@@ -298,22 +491,23 @@ def prompt_config() -> None:
         if proxy_bypass:
             f.write(f"\nPROXY_BYPASS={proxy_bypass}\n")
 
-    log_success(f"Config written to {config_path}")
+    log_success(f"Config written to {instance.config_path}")
 
 
-def sync_config_to_vm() -> None:
+def sync_config_to_vm(instance: Instance) -> None:
     """Copy config to VM and apply it."""
-    repo_dir = ensure_repo()
-    config_path = YOLO_CAGE_HOME / "config.env"
+    repo_dir = ensure_repo(instance)
 
-    if not config_path.exists():
-        die("No config found. Run 'yolo-cage build' with --config-file or --interactive.")
+    if not instance.config_path.exists():
+        die(
+            f"No config found for instance '{instance.name}'. "
+            f"Run 'yolo-cage build' with --config-file or --interactive."
+        )
 
     log_step("Syncing configuration to VM...")
     vagrant_ssh(repo_dir, "mkdir -p ~/.yolo-cage")
 
-    # Copy config file content to VM
-    config_content = config_path.read_text()
+    config_content = instance.config_path.read_text()
     subprocess.run(
         ["vagrant", "ssh", "-c", "cat > ~/.yolo-cage/config.env"],
         cwd=repo_dir,
@@ -326,8 +520,13 @@ def sync_config_to_vm() -> None:
     vagrant_ssh(repo_dir, "yolo-cage-configure")
 
 
-def cmd_build(args: argparse.Namespace) -> None:
-    """Set up yolo-cage (clone repo, build VM)."""
+# =============================================================================
+# Commands
+# =============================================================================
+
+
+def cmd_build(args: argparse.Namespace, registry: Registry) -> None:
+    """Set up yolo-cage (create instance, clone repo, build VM)."""
     check_prerequisites()
 
     if sys.platform == "darwin":
@@ -336,40 +535,56 @@ def cmd_build(args: argparse.Namespace) -> None:
         print("The vagrant-qemu plugin has known limitations.")
         print()
 
-    YOLO_CAGE_HOME.mkdir(parents=True, exist_ok=True)
+    instance_name = args.instance or "default"
 
-    existing_config = YOLO_CAGE_HOME / "config.env"
+    # Determine repo_path - check if running from within the repo
+    repo_path = detect_repo_dir_from_script()
+
+    # Check if instance already exists
+    existing = registry.get(instance_name)
+    if existing:
+        log_step(f"Using existing instance: {instance_name}")
+        instance = existing
+    else:
+        log_step(f"Creating instance: {instance_name}")
+        instance = registry.create(instance_name, repo_path=repo_path)
 
     # Handle config
     if args.config_file:
         config_file = Path(args.config_file)
         if not config_file.exists():
             die(f"Config file not found: {config_file}")
-        shutil.copy(config_file, YOLO_CAGE_HOME / "config.env")
-        log_success(f"Config copied to {YOLO_CAGE_HOME / 'config.env'}")
+        instance.dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config_file, instance.config_path)
+        log_success(f"Config copied to {instance.config_path}")
     elif args.interactive:
-        prompt_config()
-    elif existing_config.exists():
-        log_success(f"Using existing config: {existing_config}")
+        prompt_config(instance)
+    elif instance.config_path.exists():
+        log_success(f"Using existing config: {instance.config_path}")
     else:
         die(
             f"No configuration found.\n\n"
             f"Either:\n"
             f"  - Run with --interactive to create one\n"
             f"  - Run with --config-file to use an existing file\n"
-            f"  - Create {existing_config} manually"
+            f"  - Create {instance.config_path} manually"
         )
 
-    # Clone repo if needed
-    repo_dir = detect_repo_dir()
-    if not repo_dir:
-        log_step("Cloning yolo-cage repository...")
-        subprocess.run(
-            ["git", "clone", YOLO_CAGE_REPO, str(YOLO_CAGE_HOME / "repo")],
-            check=True,
-        )
-        repo_dir = YOLO_CAGE_HOME / "repo"
-        log_success("Repository cloned")
+    # Clone repo if needed (only if not using local dev repo)
+    if not instance.repo_path:
+        if not instance.repo_dir.is_dir():
+            log_step("Cloning yolo-cage repository...")
+            subprocess.run(
+                ["git", "clone", YOLO_CAGE_REPO, str(instance.repo_dir)],
+                check=True,
+            )
+            log_success("Repository cloned")
+        else:
+            log_success(f"Using existing repo: {instance.repo_dir}")
+    else:
+        log_success(f"Using development repo: {instance.repo_path}")
+
+    repo_dir = instance.repo_dir
 
     # Destroy existing VM if present
     vagrant_dir = repo_dir / ".vagrant"
@@ -382,30 +597,34 @@ def cmd_build(args: argparse.Namespace) -> None:
     subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     # Sync config and apply
-    sync_config_to_vm()
+    sync_config_to_vm(instance)
+
+    # Set as default if this is the only instance
+    if len(registry.list()) == 1:
+        registry.set_default(instance_name)
 
     if not args.up:
         subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
         print()
-        log_success("VM built successfully!")
+        log_success(f"Instance '{instance_name}' built successfully!")
         print("Run 'yolo-cage up' to start the VM.")
     else:
         print()
-        log_success("VM built and running!")
+        log_success(f"Instance '{instance_name}' built and running!")
         print()
         print("Create a sandbox:  yolo-cage create <branch>")
         print("List sandboxes:    yolo-cage list")
         print("Attach to sandbox: yolo-cage attach <branch>")
 
 
-def cmd_up(args: argparse.Namespace) -> None:
+def cmd_up(args: argparse.Namespace, instance: Instance) -> None:
     """Start the VM."""
-    repo_dir = ensure_repo()
+    repo_dir = ensure_repo(instance)
 
     if args.ram:
         print("Note: --ram option is not yet implemented. Using default RAM.")
 
-    log_step("Starting VM...")
+    log_step(f"Starting VM for instance '{instance.name}'...")
     subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
 
     log_success("VM is running")
@@ -414,22 +633,22 @@ def cmd_up(args: argparse.Namespace) -> None:
     print("List sandboxes:    yolo-cage list")
 
 
-def cmd_down(args: argparse.Namespace) -> None:
+def cmd_down(args: argparse.Namespace, instance: Instance) -> None:
     """Stop the VM."""
-    repo_dir = ensure_repo()
+    repo_dir = ensure_repo(instance)
 
-    log_step("Stopping VM...")
+    log_step(f"Stopping VM for instance '{instance.name}'...")
     subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
 
     log_success("VM stopped")
 
 
-def cmd_destroy(args: argparse.Namespace) -> None:
+def cmd_destroy(args: argparse.Namespace, instance: Instance) -> None:
     """Remove the VM entirely."""
-    repo_dir = ensure_repo()
+    repo_dir = ensure_repo(instance)
 
-    print("This will destroy the VM and all data inside it.")
-    print(f"Your config in {YOLO_CAGE_HOME / 'config.env'} will be preserved.")
+    print(f"This will destroy the VM for instance '{instance.name}' and all data inside it.")
+    print(f"Your config in {instance.config_path} will be preserved.")
     print()
     confirm = input("Continue? [y/N] ").strip().lower()
 
@@ -443,17 +662,18 @@ def cmd_destroy(args: argparse.Namespace) -> None:
     log_success("VM destroyed")
 
 
-def cmd_configure(args: argparse.Namespace) -> None:
+def cmd_configure(args: argparse.Namespace, instance: Instance) -> None:
     """Update configuration and sync to VM."""
     if args.interactive:
-        prompt_config()
+        prompt_config(instance)
     else:
-        config_path = YOLO_CAGE_HOME / "config.env"
-        if not config_path.exists():
-            die(f"No config found at {config_path}\nRun 'yolo-cage configure --interactive' to create one.")
+        if not instance.config_path.exists():
+            die(
+                f"No config found at {instance.config_path}\n"
+                f"Run 'yolo-cage configure --interactive' to create one."
+            )
 
-        # Validate the config before syncing
-        config = load_config()
+        config = load_config_from_instance(instance)
         pat = config.get("GITHUB_PAT")
         repo_url = config.get("REPO_URL")
 
@@ -467,7 +687,7 @@ def cmd_configure(args: argparse.Namespace) -> None:
         log_success(message)
 
     # Sync to VM if it's running
-    repo_dir = detect_repo_dir()
+    repo_dir = detect_repo_dir_for_instance(instance)
     if repo_dir:
         result = subprocess.run(
             ["vagrant", "status", "--machine-readable"],
@@ -478,21 +698,20 @@ def cmd_configure(args: argparse.Namespace) -> None:
         vm_running = any(",state,running" in line for line in result.stdout.splitlines())
 
         if vm_running:
-            sync_config_to_vm()
+            sync_config_to_vm(instance)
         else:
-            log_success(f"Config saved to {YOLO_CAGE_HOME / 'config.env'}")
+            log_success(f"Config saved to {instance.config_path}")
             print("VM is not running. Config will be applied on next 'yolo-cage up'.")
     else:
-        log_success(f"Config saved to {YOLO_CAGE_HOME / 'config.env'}")
+        log_success(f"Config saved to {instance.config_path}")
 
 
-def cmd_create(args: argparse.Namespace) -> None:
+def cmd_create(args: argparse.Namespace, instance: Instance) -> None:
     """Create a sandbox pod for a branch."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
 
-    # Validate repository access before creating pod
-    config = load_config()
+    config = load_config_from_instance(instance)
     pat = config.get("GITHUB_PAT")
     repo_url = config.get("REPO_URL")
 
@@ -508,31 +727,31 @@ def cmd_create(args: argparse.Namespace) -> None:
     vagrant_ssh(repo_dir, f"yolo-cage-vm create '{args.branch}'")
 
 
-def cmd_attach(args: argparse.Namespace) -> None:
+def cmd_attach(args: argparse.Namespace, instance: Instance) -> None:
     """Attach to a sandbox pod (tmux session)."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
     vagrant_ssh(repo_dir, f"yolo-cage-vm attach '{args.branch}'", interactive=True)
 
 
-def cmd_shell(args: argparse.Namespace) -> None:
+def cmd_shell(args: argparse.Namespace, instance: Instance) -> None:
     """Open a shell in a sandbox pod."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
     vagrant_ssh(repo_dir, f"yolo-cage-vm shell '{args.branch}'", interactive=True)
 
 
-def cmd_list(args: argparse.Namespace) -> None:
+def cmd_list(args: argparse.Namespace, instance: Instance) -> None:
     """List all sandbox pods."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
     vagrant_ssh(repo_dir, "yolo-cage-vm list")
 
 
-def cmd_delete(args: argparse.Namespace) -> None:
+def cmd_delete(args: argparse.Namespace, instance: Instance) -> None:
     """Delete a sandbox pod."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
 
     cmd = f"yolo-cage-vm delete '{args.branch}'"
     if args.clean:
@@ -541,25 +760,23 @@ def cmd_delete(args: argparse.Namespace) -> None:
     vagrant_ssh(repo_dir, cmd)
 
 
-def cmd_logs(args: argparse.Namespace) -> None:
+def cmd_logs(args: argparse.Namespace, instance: Instance) -> None:
     """Tail pod logs."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
     vagrant_ssh(repo_dir, f"yolo-cage-vm logs '{args.branch}'")
 
 
-def cmd_port_forward(args: argparse.Namespace) -> None:
+def cmd_port_forward(args: argparse.Namespace, instance: Instance) -> None:
     """Forward a port from a sandbox pod to localhost."""
-    ensure_vm_running()
-    repo_dir = ensure_repo()
+    ensure_vm_running(instance)
+    repo_dir = ensure_repo(instance)
 
-    # Parse port spec: "8080" or "local:remote"
     if ":" in args.port:
         local_port, pod_port = args.port.split(":", 1)
     else:
         local_port = pod_port = args.port
 
-    # Validate ports are numeric
     try:
         int(local_port)
         int(pod_port)
@@ -570,17 +787,17 @@ def cmd_port_forward(args: argparse.Namespace) -> None:
     branch = args.branch
     pod_name = f"yolo-cage-{branch}"
 
-    print(f"Forwarding {bind_addr}:{local_port} → {pod_name}:{pod_port}")
+    print(f"Forwarding {bind_addr}:{local_port} -> {pod_name}:{pod_port}")
     print("Press Ctrl+C to stop")
     print()
 
-    # Use SSH tunnel (-L) combined with kubectl port-forward
-    # The -L flag creates: host:local_port -> VM:local_port
-    # kubectl port-forward creates: VM:local_port -> pod:pod_port
     kubectl_cmd = f"kubectl port-forward -n yolo-cage pod/{pod_name} {local_port}:{pod_port}"
     ssh_cmd = [
-        "vagrant", "ssh", "--",
-        "-L", f"{bind_addr}:{local_port}:localhost:{local_port}",
+        "vagrant",
+        "ssh",
+        "--",
+        "-L",
+        f"{bind_addr}:{local_port}:localhost:{local_port}",
         kubectl_cmd,
     ]
 
@@ -590,12 +807,11 @@ def cmd_port_forward(args: argparse.Namespace) -> None:
         print("\nPort forwarding stopped.")
 
 
-def cmd_upgrade(args: argparse.Namespace) -> None:
+def cmd_upgrade(args: argparse.Namespace, instance: Instance) -> None:
     """Upgrade yolo-cage to the latest version."""
     import tempfile
-    import urllib.request
 
-    repo_dir = detect_repo_dir()
+    repo_dir = detect_repo_dir_for_instance(instance)
 
     # Step 1: Update the CLI binary
     log_step("Downloading latest yolo-cage CLI...")
@@ -606,11 +822,9 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             urllib.request.urlretrieve(cli_url, tmp.name)
             tmp_path = tmp.name
 
-        # Make executable and move to /usr/local/bin
         os.chmod(tmp_path, 0o755)
         target = "/usr/local/bin/yolo-cage"
 
-        # Try to copy (may need sudo)
         try:
             shutil.copy(tmp_path, target)
             log_success("CLI updated")
@@ -627,11 +841,9 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
     except Exception as e:
         die(f"Failed to download CLI: {e}")
 
-    # Step 2: Update the repo
-    if repo_dir and repo_dir == YOLO_CAGE_HOME / "repo":
+    # Step 2: Update the repo (only if using cloned repo, not dev repo)
+    if repo_dir and not instance.repo_path:
         log_step("Updating repository...")
-        # Fetch latest and reset to origin/main (discarding any local changes)
-        # This is safe because ~/.yolo-cage/repo is an internal clone, not user-editable
         subprocess.run(
             ["git", "fetch", "origin"],
             cwd=repo_dir,
@@ -647,8 +859,8 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             log_success("Repository updated")
         else:
             log_error(f"Failed to update repository: {result.stderr}")
-    elif repo_dir:
-        print(f"Skipping repo update (running from dev repo: {repo_dir})")
+    elif instance.repo_path:
+        print(f"Skipping repo update (using dev repo: {instance.repo_path})")
 
     # Step 3: Optionally rebuild VM
     if args.rebuild:
@@ -656,19 +868,22 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
             die("No repository found. Run 'yolo-cage build' first.")
         log_step("Rebuilding VM with updated code...")
         subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
-        subprocess.run(["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True)
-        sync_config_to_vm()
+        subprocess.run(
+            ["vagrant", "up"] + vagrant_provider_args(), cwd=repo_dir, check=True
+        )
+        sync_config_to_vm(instance)
         log_success("VM rebuilt")
     else:
         print()
         print("CLI and repo updated. Run 'yolo-cage build' to update the VM.")
 
 
-def cmd_status(args: argparse.Namespace) -> None:
+def cmd_status(args: argparse.Namespace, instance: Instance) -> None:
     """Show VM and pod status."""
-    repo_dir = detect_repo_dir()
+    repo_dir = detect_repo_dir_for_instance(instance)
 
     if not repo_dir:
+        print(f"Instance: {instance.name}")
         print("Status: Not built")
         print()
         print("Run 'yolo-cage build --interactive --up' to get started.")
@@ -687,8 +902,9 @@ def cmd_status(args: argparse.Namespace) -> None:
             vm_status = line.split(",")[3]
             break
 
+    print(f"Instance: {instance.name}")
     print(f"Repository: {repo_dir}")
-    print(f"Config: {YOLO_CAGE_HOME / 'config.env'}")
+    print(f"Config: {instance.config_path}")
     print(f"VM status: {vm_status}")
 
     if vm_status == "running":
@@ -697,15 +913,79 @@ def cmd_status(args: argparse.Namespace) -> None:
         vagrant_ssh(repo_dir, "yolo-cage-vm list")
 
 
+def cmd_instances(args: argparse.Namespace, registry: Registry) -> None:
+    """List all instances."""
+    instances = registry.list()
+    default = registry.default
+
+    if not instances:
+        print("No instances found.")
+        print()
+        print("Run 'yolo-cage build --interactive --up' to create one.")
+        return
+
+    print("Instances:")
+    for instance in instances:
+        marker = " (default)" if instance.name == default else ""
+        repo_type = "dev" if instance.repo_path else "cloned"
+        print(f"  {instance.name}{marker} [{repo_type}]")
+
+
+def cmd_set_default(args: argparse.Namespace, registry: Registry) -> None:
+    """Set the default instance."""
+    registry.set_default(args.name)
+    log_success(f"Default instance set to: {args.name}")
+
+
+def cmd_delete_instance(args: argparse.Namespace, registry: Registry) -> None:
+    """Delete an instance."""
+    instance = registry.get(args.name)
+    if not instance:
+        die(f"Instance not found: {args.name}")
+
+    print(f"This will delete instance '{args.name}' and all its data:")
+    print(f"  - Config: {instance.config_path}")
+    print(f"  - Repository: {instance.repo_dir}")
+    print()
+
+    if not args.force:
+        confirm = input("Continue? [y/N] ").strip().lower()
+        if confirm not in ("y", "yes"):
+            print("Aborted.")
+            return
+
+    # Destroy VM first if repo exists
+    repo_dir = detect_repo_dir_for_instance(instance)
+    if repo_dir:
+        log_step("Destroying VM...")
+        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
+
+    registry.delete(args.name)
+    log_success(f"Instance '{args.name}' deleted")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="yolo-cage",
         description="Sandboxed Claude Code agents",
     )
     parser.add_argument(
-        "--version", "-v", "--v",
+        "--version",
+        "-v",
+        "--v",
         action="version",
         version=f"yolo-cage {YOLO_CAGE_VERSION}",
+    )
+    parser.add_argument(
+        "-I",
+        "--instance",
+        metavar="NAME",
+        help="Instance to use (default: auto-resolved)",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
@@ -718,13 +998,42 @@ def main() -> None:
         "version",
         help="Show version",
     )
-    p_version.set_defaults(func=cmd_version)
+    p_version.set_defaults(func=cmd_version, needs_instance=False)
+
+    # instances
+    p_instances = subparsers.add_parser(
+        "instances",
+        help="List all instances",
+    )
+    p_instances.set_defaults(func=cmd_instances, needs_instance=False)
+
+    # set-default
+    p_set_default = subparsers.add_parser(
+        "set-default",
+        help="Set the default instance",
+    )
+    p_set_default.add_argument("name", help="Instance name")
+    p_set_default.set_defaults(func=cmd_set_default, needs_instance=False)
+
+    # delete-instance
+    p_delete_instance = subparsers.add_parser(
+        "delete-instance",
+        help="Delete an instance",
+    )
+    p_delete_instance.add_argument("name", help="Instance name")
+    p_delete_instance.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    p_delete_instance.set_defaults(func=cmd_delete_instance, needs_instance=False)
 
     # build
     p_build = subparsers.add_parser(
         "build",
-        help="Set up yolo-cage (clone repo, build VM)",
-        description="Set up yolo-cage by cloning the repository and building the VM.",
+        help="Set up yolo-cage (create instance, clone repo, build VM)",
+        description="Set up yolo-cage by creating an instance, cloning the repository, and building the VM.",
     )
     p_build.add_argument(
         "--config-file",
@@ -741,7 +1050,7 @@ def main() -> None:
         action="store_true",
         help="Keep VM running after build",
     )
-    p_build.set_defaults(func=cmd_build)
+    p_build.set_defaults(func=cmd_build, needs_instance=False)
 
     # upgrade
     p_upgrade = subparsers.add_parser(
@@ -754,7 +1063,7 @@ def main() -> None:
         action="store_true",
         help="Also rebuild the VM after upgrading",
     )
-    p_upgrade.set_defaults(func=cmd_upgrade)
+    p_upgrade.set_defaults(func=cmd_upgrade, needs_instance=True)
 
     # up
     p_up = subparsers.add_parser(
@@ -767,7 +1076,7 @@ def main() -> None:
         metavar="SIZE",
         help="RAM size (not yet implemented)",
     )
-    p_up.set_defaults(func=cmd_up)
+    p_up.set_defaults(func=cmd_up, needs_instance=True)
 
     # down
     p_down = subparsers.add_parser(
@@ -775,15 +1084,15 @@ def main() -> None:
         help="Stop the VM",
         aliases=["stop", "halt"],
     )
-    p_down.set_defaults(func=cmd_down)
+    p_down.set_defaults(func=cmd_down, needs_instance=True)
 
     # destroy
     p_destroy = subparsers.add_parser(
         "destroy",
-        help="Remove the VM entirely",
-        description="Destroy the VM and all data inside it. Your config.env will be preserved.",
+        help="Destroy the VM (keeps instance and config)",
+        description="Destroy the VM and all data inside it. Your instance and config will be preserved.",
     )
-    p_destroy.set_defaults(func=cmd_destroy)
+    p_destroy.set_defaults(func=cmd_destroy, needs_instance=True)
 
     # configure
     p_configure = subparsers.add_parser(
@@ -792,18 +1101,19 @@ def main() -> None:
         description="Validate and sync configuration to the VM. Use --interactive to re-enter credentials.",
     )
     p_configure.add_argument(
-        "--interactive", "-i",
+        "--interactive",
+        "-i",
         action="store_true",
         help="Prompt for configuration interactively",
     )
-    p_configure.set_defaults(func=cmd_configure)
+    p_configure.set_defaults(func=cmd_configure, needs_instance=True)
 
     # status
     p_status = subparsers.add_parser(
         "status",
         help="Show VM and pod status",
     )
-    p_status.set_defaults(func=cmd_status)
+    p_status.set_defaults(func=cmd_status, needs_instance=True)
 
     # create
     p_create = subparsers.add_parser(
@@ -811,7 +1121,7 @@ def main() -> None:
         help="Create a sandbox pod for a branch",
     )
     p_create.add_argument("branch", help="Git branch name")
-    p_create.set_defaults(func=cmd_create)
+    p_create.set_defaults(func=cmd_create, needs_instance=True)
 
     # attach
     p_attach = subparsers.add_parser(
@@ -819,7 +1129,7 @@ def main() -> None:
         help="Start interactive Claude Code session",
     )
     p_attach.add_argument("branch", help="Git branch name")
-    p_attach.set_defaults(func=cmd_attach)
+    p_attach.set_defaults(func=cmd_attach, needs_instance=True)
 
     # shell
     p_shell = subparsers.add_parser(
@@ -828,7 +1138,7 @@ def main() -> None:
         aliases=["sh"],
     )
     p_shell.add_argument("branch", help="Git branch name")
-    p_shell.set_defaults(func=cmd_shell)
+    p_shell.set_defaults(func=cmd_shell, needs_instance=True)
 
     # list
     p_list = subparsers.add_parser(
@@ -836,7 +1146,7 @@ def main() -> None:
         help="List all sandbox pods",
         aliases=["ls"],
     )
-    p_list.set_defaults(func=cmd_list)
+    p_list.set_defaults(func=cmd_list, needs_instance=True)
 
     # delete
     p_delete = subparsers.add_parser(
@@ -850,7 +1160,7 @@ def main() -> None:
         action="store_true",
         help="Also delete workspace files",
     )
-    p_delete.set_defaults(func=cmd_delete)
+    p_delete.set_defaults(func=cmd_delete, needs_instance=True)
 
     # logs
     p_logs = subparsers.add_parser(
@@ -858,7 +1168,7 @@ def main() -> None:
         help="Tail pod logs",
     )
     p_logs.add_argument("branch", help="Git branch name")
-    p_logs.set_defaults(func=cmd_logs)
+    p_logs.set_defaults(func=cmd_logs, needs_instance=True)
 
     # port-forward
     p_port_forward = subparsers.add_parser(
@@ -877,7 +1187,7 @@ def main() -> None:
         metavar="ADDR",
         help="Bind address (default: 127.0.0.1, use 0.0.0.0 for LAN access)",
     )
-    p_port_forward.set_defaults(func=cmd_port_forward)
+    p_port_forward.set_defaults(func=cmd_port_forward, needs_instance=True)
 
     args = parser.parse_args()
 
@@ -885,7 +1195,24 @@ def main() -> None:
         parser.print_help()
         sys.exit(0)
 
-    args.func(args)
+    # Initialize registry
+    registry = Registry()
+
+    # Run legacy migration if needed
+    registry.migrate_legacy()
+
+    # Dispatch command
+    if hasattr(args, "needs_instance") and args.needs_instance:
+        instance = registry.resolve(args.instance)
+        args.func(args, instance)
+    else:
+        # Commands that don't need instance resolution (version, instances, set-default, build)
+        if args.func == cmd_build:
+            args.func(args, registry)
+        elif args.func in (cmd_instances, cmd_set_default, cmd_delete_instance):
+            args.func(args, registry)
+        else:
+            args.func(args)
 
 
 if __name__ == "__main__":

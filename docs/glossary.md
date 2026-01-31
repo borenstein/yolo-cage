@@ -6,18 +6,58 @@ This glossary defines the ubiquitous language used throughout the yolo-cage proj
 
 ## Core Concepts
 
+### <a name="instance"></a>Instance
+
+A named, self-contained yolo-cage environment targeting a specific [Managed Repository](#managed-repository). An Instance:
+- Has a unique **name** (e.g., "default", "work", "personal")
+- Has its own **Configuration** (PAT, repo URL, git identity)
+- Has its own **Runtime** (VM running MicroK8s with dispatcher, proxy, etc.)
+- Contains a copy of the **System Repository** (cloned or linked to local dev path)
+
+Multiple Instances allow working on different projects simultaneously, each with separate credentials and isolated Runtimes.
+
+**Storage:** `~/.yolo-cage/instances/<name>/`
+
+**Usage:** "Create an instance for the work project", "Start the default instance", "List all instances"
+
+**Related:** [Instance Registry](#instance-registry), [Runtime](#runtime), [Configuration](#configuration)
+
+---
+
+### <a name="instance-registry"></a>Instance Registry
+
+The management layer that tracks all Instances on the host machine. The Instance Registry:
+- Lists all available instances
+- Resolves which instance to use (explicit, default, or auto-select if only one exists)
+- Manages the default instance setting
+- Handles legacy migration from single-instance layout
+
+**Resolution Rules:**
+1. If `-I <name>` is specified, use that instance
+2. If only one instance exists, use it automatically
+3. If multiple exist and a default is set, use the default
+4. If multiple exist and no default, error with guidance
+
+**Storage:** `~/.yolo-cage/default` (text file with default instance name)
+
+**Usage:** "yolo-cage instances", "yolo-cage set-default work", "yolo-cage -I personal status"
+
+**Related:** [Instance](#instance)
+
+---
+
 ### <a name="runtime"></a>Runtime
 
-The complete yolo-cage infrastructure, consisting of:
+The complete yolo-cage infrastructure for a single [Instance](#instance), consisting of:
 - The Vagrant VM
 - The Kubernetes (MicroK8s) cluster
 - The dispatcher service
 - The egress proxy service
 - Supporting services (LLM-Guard, container registry)
 
-**Usage:** Users "build the runtime", "start the runtime", "upgrade the runtime"
+**Usage:** Users "start the instance" (which starts its Runtime), "stop the instance"
 
-**Related:** [VM](#vm), [Dispatcher](#dispatcher), [Egress Proxy](#egress-proxy)
+**Related:** [Instance](#instance), [VM](#vm), [Dispatcher](#dispatcher), [Egress Proxy](#egress-proxy)
 
 ---
 
@@ -210,7 +250,7 @@ Git hooks that run before a push operation is allowed. The default hook uses Tru
 
 ### <a name="configuration"></a>Configuration
 
-User-provided settings and credentials stored in `~/.yolo-cage/config.env`. Configuration includes:
+User-provided settings and credentials for an [Instance](#instance), stored in `~/.yolo-cage/instances/<name>/config.env`. Each instance has its own configuration, allowing different projects to use different credentials and settings.
 
 **Required:**
 - `GITHUB_PAT`: GitHub Personal Access Token with push access to the managed repository
@@ -222,9 +262,9 @@ User-provided settings and credentials stored in `~/.yolo-cage/config.env`. Conf
 - `CLAUDE_OAUTH`: Claude OAuth token for authentication
 - `PROXY_BYPASS`: Comma-separated list of domains that bypass the egress proxy
 
-**Usage:** "Apply configuration to the runtime", "Validate configuration before creating a sandbox"
+**Usage:** "Apply configuration to the instance", "Validate configuration before creating a sandbox"
 
-**Related:** [Runtime](#runtime), [Managed Repository](#managed-repository)
+**Related:** [Instance](#instance), [Runtime](#runtime), [Managed Repository](#managed-repository)
 
 ---
 
@@ -300,7 +340,8 @@ The Kubernetes namespace (`yolo-cage`) where all pods and services are deployed.
 
 | When you mean... | Use this term | Not this |
 |------------------|---------------|----------|
-| The whole infrastructure | Runtime | "VM", "platform", "environment" |
+| A self-contained yolo-cage environment | Instance | "VM", "setup", "installation" |
+| The whole infrastructure for an instance | Runtime | "VM", "platform", "environment" |
 | The isolated environment for a branch | Sandbox | "pod", "container" |
 | The AI working in a sandbox | Agent | "Claude", "bot", "the AI" |
 | The user's project repository | Managed Repository | "the repo", "repository" |
