@@ -2,7 +2,7 @@
 """yolo-cage - Host CLI for managing sandboxed Claude Code agents
 
 This script runs on the user's host machine and manages the VM lifecycle,
-delegating pod operations to yolo-cage-inner inside the VM.
+delegating pod operations to yolo-cage-vm inside the VM.
 """
 
 import argparse
@@ -505,28 +505,28 @@ def cmd_create(args: argparse.Namespace) -> None:
         die(message)
     log_success(message)
 
-    vagrant_ssh(repo_dir, f"yolo-cage-inner create '{args.branch}'")
+    vagrant_ssh(repo_dir, f"yolo-cage-vm create '{args.branch}'")
 
 
 def cmd_attach(args: argparse.Namespace) -> None:
     """Attach to a sandbox pod (tmux session)."""
     ensure_vm_running()
     repo_dir = ensure_repo()
-    vagrant_ssh(repo_dir, f"yolo-cage-inner attach '{args.branch}'", interactive=True)
+    vagrant_ssh(repo_dir, f"yolo-cage-vm attach '{args.branch}'", interactive=True)
 
 
 def cmd_shell(args: argparse.Namespace) -> None:
     """Open a shell in a sandbox pod."""
     ensure_vm_running()
     repo_dir = ensure_repo()
-    vagrant_ssh(repo_dir, f"yolo-cage-inner shell '{args.branch}'", interactive=True)
+    vagrant_ssh(repo_dir, f"yolo-cage-vm shell '{args.branch}'", interactive=True)
 
 
 def cmd_list(args: argparse.Namespace) -> None:
     """List all sandbox pods."""
     ensure_vm_running()
     repo_dir = ensure_repo()
-    vagrant_ssh(repo_dir, "yolo-cage-inner list")
+    vagrant_ssh(repo_dir, "yolo-cage-vm list")
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
@@ -534,7 +534,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
     ensure_vm_running()
     repo_dir = ensure_repo()
 
-    cmd = f"yolo-cage-inner delete '{args.branch}'"
+    cmd = f"yolo-cage-vm delete '{args.branch}'"
     if args.clean:
         cmd += " --clean"
 
@@ -545,7 +545,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
     """Tail pod logs."""
     ensure_vm_running()
     repo_dir = ensure_repo()
-    vagrant_ssh(repo_dir, f"yolo-cage-inner logs '{args.branch}'")
+    vagrant_ssh(repo_dir, f"yolo-cage-vm logs '{args.branch}'")
 
 
 def cmd_port_forward(args: argparse.Namespace) -> None:
@@ -694,7 +694,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     if vm_status == "running":
         print()
         print("Pods:")
-        vagrant_ssh(repo_dir, "yolo-cage-inner list")
+        vagrant_ssh(repo_dir, "yolo-cage-vm list")
 
 
 def main() -> None:

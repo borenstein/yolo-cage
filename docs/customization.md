@@ -1,6 +1,6 @@
 # Customization Guide
 
-This guide covers advanced customizations beyond the standard [Configuration Reference](configuration.md).
+This guide covers advanced customizations beyond the standard [Configuration Reference](configuration.md). For terminology, see the [glossary](glossary.md).
 
 > **Note**: When customizing, maintain the security properties: non-root user, NetworkPolicy egress restrictions, and proxy-based scanning. Disabling these removes exfiltration controls.
 
@@ -51,7 +51,7 @@ docker build -t localhost:32000/yolo-cage:latest -f dockerfiles/sandbox/Dockerfi
 docker push localhost:32000/yolo-cage:latest
 ```
 
-New pods will use the updated image. Existing pods need to be deleted and recreated.
+New [sandboxes](glossary.md#sandbox) will use the updated image. Existing sandboxes need to be deleted and recreated.
 
 ## Adding Secret Patterns
 
