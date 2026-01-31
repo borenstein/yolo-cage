@@ -4,7 +4,7 @@ import json
 import subprocess
 from typing import List, Optional
 
-from ..common.errors import KubernetesError
+from ..errors import KubernetesError
 
 
 NAMESPACE = "yolo-cage"

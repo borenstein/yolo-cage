@@ -2,8 +2,8 @@
 
 from typing import List
 
-from ..common.errors import SandboxError
-from ..common.logging import log_step, log_success
+from ..errors import SandboxError
+from ..output import log_step, log_success
 from ..domain.branch import Branch
 from ..domain.sandbox import Sandbox
 from . import kubernetes

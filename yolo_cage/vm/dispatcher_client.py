@@ -5,7 +5,7 @@ import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional
 
-from ..common.errors import DispatcherError
+from ..errors import DispatcherError
 from ..domain.branch import Branch
 from ..domain.sandbox import Sandbox, SandboxStatus
 from . import kubernetes

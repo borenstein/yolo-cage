@@ -3,8 +3,8 @@
 import argparse
 import sys
 
-from ..common.errors import SandboxError, YoloCageError
-from ..common.logging import die, log_error
+from ..errors import SandboxError, YoloCageError
+from ..output import die, log_error
 from ..domain.branch import Branch
 from . import sandbox_ops
 
