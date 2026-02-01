@@ -2,7 +2,6 @@
 
 import argparse
 import shutil
-import subprocess
 import sys
 
 from .. import instances, vagrant, config, prerequisites
@@ -61,25 +60,21 @@ def cmd_build(args: argparse.Namespace) -> None:
     # Destroy existing VM if present
     if (repo_dir / ".vagrant").exists():
         log_step("Destroying existing VM...")
-        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
+        vagrant.destroy(repo_dir, name)
 
     # Build VM
     log_step("Building VM (this may take a while)...")
-    subprocess.run(
-        ["vagrant", "up"] + vagrant.provider_args(),
-        cwd=repo_dir,
-        check=True,
-    )
+    vagrant.up(repo_dir, name)
 
     # Sync config
-    vagrant.sync_config(repo_dir, config_path)
+    vagrant.sync_config(repo_dir, config_path, name)
 
     # Set as default if only instance
     if len(instances.list_instances()) == 1:
         instances.set_default(name)
 
     if not args.up:
-        subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
+        vagrant.halt(repo_dir, name)
         print()
         log_success(f"Instance '{name}' built!")
         print("Run 'yolo-cage up' to start.")
