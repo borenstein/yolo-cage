@@ -34,7 +34,7 @@ def cmd_set_default(args: argparse.Namespace) -> None:
 
 def cmd_delete_instance(args: argparse.Namespace) -> None:
     """Delete an instance."""
-    import subprocess
+    from .. import vagrant
     from ...output import die, log_step
 
     instances.migrate_legacy()
@@ -53,7 +53,7 @@ def cmd_delete_instance(args: argparse.Namespace) -> None:
     repo_dir = instances.get_repo_dir(name)
     if (repo_dir / ".vagrant").exists():
         log_step("Destroying VM...")
-        subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir)
+        vagrant.destroy(repo_dir, name)
 
     instances.delete(name)
     log_success(f"Instance '{name}' deleted")

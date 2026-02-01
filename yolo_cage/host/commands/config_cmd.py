@@ -32,9 +32,9 @@ def cmd_configure(args: argparse.Namespace) -> None:
 
     # Sync to VM if running
     if (repo_dir / "Vagrantfile").exists():
-        status = vagrant.get_status(repo_dir)
+        status = vagrant.get_status(repo_dir, name)
         if status == "running":
-            vagrant.sync_config(repo_dir, config_path)
+            vagrant.sync_config(repo_dir, config_path, name)
         else:
             log_success(f"Config saved to {config_path}")
             print("VM not running. Config will apply on next 'yolo-cage up'.")

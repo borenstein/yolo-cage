@@ -1,6 +1,7 @@
 """Network commands - port forwarding."""
 
 import argparse
+import os
 import subprocess
 
 from .. import instances, vagrant
@@ -16,7 +17,7 @@ def cmd_port_forward(args: argparse.Namespace) -> None:
     if not (repo_dir / "Vagrantfile").exists():
         die(f"Repository not found for instance '{name}'.")
 
-    vagrant.ensure_running(repo_dir)
+    vagrant.ensure_running(repo_dir, name)
 
     # Parse port spec
     if ":" in args.port:
@@ -35,6 +36,10 @@ def cmd_port_forward(args: argparse.Namespace) -> None:
     print("Press Ctrl+C to stop")
     print()
 
+    # Set instance name for Vagrant
+    env = os.environ.copy()
+    env["YOLO_CAGE_INSTANCE"] = name
+
     kubectl_cmd = f"kubectl port-forward -n yolo-cage pod/{pod_name} {local_port}:{pod_port}"
     ssh_cmd = [
         "vagrant", "ssh", "--",
@@ -43,6 +48,6 @@ def cmd_port_forward(args: argparse.Namespace) -> None:
     ]
 
     try:
-        subprocess.call(ssh_cmd, cwd=repo_dir)
+        subprocess.call(ssh_cmd, cwd=repo_dir, env=env)
     except KeyboardInterrupt:
         print("\nStopped.")

@@ -1,7 +1,6 @@
 """Runtime lifecycle commands - up, down, destroy, status."""
 
 import argparse
-import subprocess
 
 from .. import instances, vagrant
 from ...output import die, log_step, log_success
@@ -17,7 +16,7 @@ def cmd_up(args: argparse.Namespace) -> None:
         die(f"Repository not found for instance '{name}'. Run 'yolo-cage build' first.")
 
     log_step(f"Starting VM for '{name}'...")
-    subprocess.run(["vagrant", "up"] + vagrant.provider_args(), cwd=repo_dir, check=True)
+    vagrant.up(repo_dir, name)
 
     log_success("VM is running")
     print()
@@ -35,7 +34,7 @@ def cmd_down(args: argparse.Namespace) -> None:
         die(f"Repository not found for instance '{name}'.")
 
     log_step(f"Stopping VM for '{name}'...")
-    subprocess.run(["vagrant", "halt"], cwd=repo_dir, check=True)
+    vagrant.halt(repo_dir, name)
     log_success("VM stopped")
 
 
@@ -54,7 +53,7 @@ def cmd_destroy(args: argparse.Namespace) -> None:
         return
 
     log_step("Destroying VM...")
-    subprocess.run(["vagrant", "destroy", "-f"], cwd=repo_dir, check=True)
+    vagrant.destroy(repo_dir, name)
     log_success("VM destroyed")
 
 
@@ -72,7 +71,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         print("Run 'yolo-cage build --interactive' to set up.")
         return
 
-    status = vagrant.get_status(repo_dir)
+    status = vagrant.get_status(repo_dir, name)
 
     print(f"Instance: {name}")
     print(f"Repository: {repo_dir}")
@@ -82,4 +81,4 @@ def cmd_status(args: argparse.Namespace) -> None:
     if status == "running":
         print()
         print("Sandboxes:", flush=True)
-        vagrant.ssh(repo_dir, "yolo-cage-vm list")
+        vagrant.ssh(repo_dir, "yolo-cage-vm list", name)
