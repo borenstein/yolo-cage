@@ -1,5 +1,3 @@
-**2026-02-01: Sorry for the delay, everyone! I am working on a redesign with a simpler mechanism, which gives much greater flexibility over what kinds of things you can deploy. I want to make sure the architecture and implementation is much cleaner than in the first go. Stay tuned!**
-
 # yolo-cage: autonomous coding agents that do no harm
 
 You're a responsible engineer. You'd never just let an AI run roughshod through your most sensitive systems and codebases. 
