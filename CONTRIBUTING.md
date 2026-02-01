@@ -1,5 +1,12 @@
 # Contributing
 
+## Code Contributions
+
+When contributing code or documentation:
+- Use the [ubiquitous language](docs/glossary.md) defined in the glossary
+- Follow existing code patterns and type hints
+- Update relevant documentation
+
 ## Pull Requests
 
 PRs merged to `main` automatically create a new release.

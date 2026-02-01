@@ -2,6 +2,8 @@
 
 This document explains how yolo-cage works and the security model it implements.
 
+For terminology used in this document, see the [glossary](glossary.md).
+
 ## The "Lethal Trifecta"
 
 [Simon Willison](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) identified the "lethal trifecta" for AI agents:
@@ -16,15 +18,15 @@ You want AI coding agents working autonomously without babysitting permission pr
 
 ## The Key Idea: Git Dispatcher
 
-The core innovation is intercepting git at the application layer. Every `git` and `gh` command from the agent goes through a dispatcher that enforces policy:
+The core innovation is intercepting git at the application layer. Every `git` and `gh` command from an [agent](glossary.md#agent) goes through a [dispatcher](glossary.md#dispatcher) that enforces policy:
 
-- **Branch isolation**: Agents can only push to their assigned branch
+- **[Branch isolation](glossary.md#branch-isolation)**: Agents can only push to their [assigned branch](glossary.md#assigned-branch)
 - **No merging**: Agents can open PRs but cannot merge them
 - **No escape**: Can't push to URLs, can't add remotes, can't clone other repos
 
 This enforces **"agent proposes, human disposes"** - the agent does the work, you review and merge.
 
-The dispatcher also runs TruffleHog before every push to catch secrets in commits.
+The dispatcher also runs [pre-push hooks](glossary.md#pre-push-hooks) (TruffleHog) before every push to catch secrets in commits.
 
 ## Defense in Depth
 
@@ -50,17 +52,18 @@ See Wikipedia's article on [defense in depth](https://en.wikipedia.org/wiki/Defe
                                      │ vagrant ssh
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Vagrant VM (Ubuntu + MicroK8s)                                       │
+│ Runtime (Vagrant VM + MicroK8s)                                      │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │ Kubernetes Cluster                                            │   │
 │  │                                                              │   │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │   │
-│  │  │ yolo-cage   │  │ yolo-cage   │  │ yolo-cage   │          │   │
+│  │  │ Sandbox     │  │ Sandbox     │  │ Sandbox     │          │   │
 │  │  │ (feature-a) │  │ (feature-b) │  │ (bugfix-c)  │          │   │
 │  │  │             │  │             │  │             │          │   │
-│  │  │ Claude Code │  │ Claude Code │  │ Claude Code │          │   │
-│  │  │ in YOLO mode│  │ in YOLO mode│  │ in YOLO mode│          │   │
+│  │  │ Agent       │  │ Agent       │  │ Agent       │          │   │
+│  │  │ (Claude Code│  │ (Claude Code│  │ (Claude Code│          │   │
+│  │  │  YOLO mode) │  │  YOLO mode) │  │  YOLO mode) │          │   │
 │  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘          │   │
 │  │         │                │                │                  │   │
 │  │         └───────────┬────┴────────────────┘                  │   │
@@ -68,11 +71,11 @@ See Wikipedia's article on [defense in depth](https://en.wikipedia.org/wiki/Defe
 │  │         ┌───────────┴───────────┐                           │   │
 │  │         ▼                       ▼                           │   │
 │  │  ┌─────────────┐         ┌─────────────┐                    │   │
-│  │  │ Git         │         │ Egress      │                    │   │
-│  │  │ Dispatcher  │         │ Proxy       │                    │   │
+│  │  │ Dispatcher  │         │ Egress      │                    │   │
+│  │  │             │         │ Proxy       │                    │   │
 │  │  │             │         │ (mitmproxy) │                    │   │
 │  │  │ • Branch    │         │             │                    │   │
-│  │  │   enforce   │         │ • Secret    │                    │   │
+│  │  │   isolation │         │ • Secret    │                    │   │
 │  │  │ • Pre-push  │         │   scanning  │                    │   │
 │  │  │   hooks     │         │ • Domain    │                    │   │
 │  │  └──────┬──────┘         │   blocking  │                    │   │
@@ -83,8 +86,8 @@ See Wikipedia's article on [defense in depth](https://en.wikipedia.org/wiki/Defe
 └────────────┼───────────────────────┼───────────────────────────────┘
              │                       │
              ▼                       ▼
-         GitHub                  Internet
-         (HTTPS)                 (filtered)
+  Managed Repository              Internet
+      (GitHub)                    (filtered)
 ```
 
 ## Components
@@ -101,9 +104,9 @@ A FastAPI service that intercepts all git and GitHub CLI operations. This is the
 - `REMOTE_WRITE` - Enforced: push (only to assigned branch)
 - `DENIED` - Blocked: remote, clone, config, credential, submodule
 
-**Branch enforcement:**
-- Each pod is assigned a branch at creation
-- Agents can only push to their assigned branch
+**[Branch isolation](glossary.md#branch-isolation) enforcement:**
+- Each [sandbox](glossary.md#sandbox) is assigned a branch at creation
+- [Agents](glossary.md#agent) can only push to their [assigned branch](glossary.md#assigned-branch)
 - Push refspecs like `HEAD:main` are blocked
 - Pushing to URLs (vs remote names) is blocked
 
@@ -136,20 +139,20 @@ An mitmproxy instance that intercepts all HTTP/HTTPS traffic:
 - Blocks `DELETE /repos/*` (repo deletion)
 - Blocks webhook and branch protection modifications
 
-### Sandbox Pods
+### Sandboxes
 
-Each agent runs in its own Kubernetes pod with:
+Each [sandbox](glossary.md#sandbox) provides an isolated environment where an [agent](glossary.md#agent) operates. Sandboxes are implemented as Kubernetes pods with:
 
-- **Claude Code** in YOLO mode (no permission prompts)
-- **tmux** for session persistence across disconnects
-- **Git/gh shims** that intercept commands and route them to the dispatcher
-- **Proxy environment variables** that route HTTP/HTTPS through the egress proxy
+- **Agent** - Claude Code in [YOLO mode](glossary.md#yolo-mode) (no permission prompts)
+- **tmux** - Session persistence across disconnects
+- **Git/gh shims** - Intercept commands and route them to the [dispatcher](glossary.md#dispatcher)
+- **Proxy environment variables** - Route HTTP/HTTPS through the [egress proxy](glossary.md#egress-proxy)
 
-Pods run as a non-root user (UID 1000) with no host filesystem access.
+Sandboxes run as a non-root user (UID 1000) with no host filesystem access. Each sandbox has its own [workspace](glossary.md#workspace) containing a clone of the [managed repository](glossary.md#managed-repository).
 
 ### Network Policy
 
-Kubernetes NetworkPolicy restricts pod network access:
+Kubernetes NetworkPolicy restricts sandbox network access:
 
 - **Allowed:** DNS (53), dispatcher (8080), proxy (8080), direct HTTPS (443)
 - **Blocked:** SSH (22), all other ports
@@ -158,19 +161,20 @@ The only way out is through the dispatcher (for git) or the proxy (for HTTP/HTTP
 
 ### Host CLI (`yolo-cage`)
 
-The command-line interface that runs on your machine. It manages the VM lifecycle and delegates pod operations to the VM:
+The command-line interface that runs on your machine. It manages the [runtime](glossary.md#runtime) lifecycle and delegates sandbox operations to the VM:
 
-- `yolo-cage build` - Clone repo, configure, create VM
-- `yolo-cage up/down` - Start/stop VM
-- `yolo-cage create/attach/delete` - Manage sandbox pods
+- `yolo-cage build` - Clone [system repository](glossary.md#system-repository), configure, create VM
+- `yolo-cage up/down` - Start/stop runtime
+- `yolo-cage create/attach/delete` - Manage [sandboxes](glossary.md#sandbox)
 
-### Vagrant VM
+### Runtime
 
-An Ubuntu 22.04 VM running MicroK8s (single-node Kubernetes). The VM provides:
+An Ubuntu 22.04 VM running MicroK8s (single-node Kubernetes). The [runtime](glossary.md#runtime) provides:
 
 - Isolation from your host system
-- A Kubernetes environment for running pods
+- A Kubernetes environment for running sandboxes
 - Network control via Kubernetes NetworkPolicy
+- The [dispatcher](glossary.md#dispatcher) and [egress proxy](glossary.md#egress-proxy) services
 
 ## Security Properties
 
@@ -215,8 +219,11 @@ Use scoped credentials and treat the sandbox as defense-in-depth, not a fortress
 | Component | Location |
 |-----------|----------|
 | Host CLI | `scripts/yolo-cage` |
-| VM CLI | `scripts/yolo-cage-inner` |
-| Git dispatcher | `dispatcher/` |
-| Egress proxy | `proxy/` |
+| VM CLI | `scripts/yolo-cage-vm` (Python) |
+| Shared codebase | `yolo_cage/` (Python package) |
+| Git dispatcher | `dispatcher/` (FastAPI) |
+| Egress proxy | `proxy/` (mitmproxy) |
 | Kubernetes manifests | `manifests/` |
 | Container images | `dockerfiles/` |
+| Documentation | `docs/` |
+| Glossary | `docs/glossary.md` |

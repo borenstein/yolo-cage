@@ -1,6 +1,6 @@
 # Configuration Reference
 
-This document covers all configuration options for yolo-cage.
+This document covers all [configuration](glossary.md#configuration) options for yolo-cage. For terminology, see the [glossary](glossary.md).
 
 ## Basic Configuration
 
@@ -17,14 +17,14 @@ GIT_EMAIL=yolo-cage@localhost
 CLAUDE_OAUTH=your_oauth_token
 PROXY_BYPASS=example.com,internal.corp
 
-# Pod resources (defaults shown)
+# Sandbox resources (defaults shown)
 POD_MEMORY_LIMIT=4Gi
 POD_MEMORY_REQUEST=1Gi
 POD_CPU_LIMIT=4
 POD_CPU_REQUEST=500m
 ```
 
-The CLI automatically syncs this to the VM and applies it to the cluster.
+The CLI automatically syncs this to the [runtime](glossary.md#runtime) and applies it to the cluster.
 
 ## Advanced Configuration
 
@@ -49,7 +49,7 @@ kubectl rollout restart deployment/git-dispatcher -n yolo-cage
 
 ## Repository URL
 
-The repository URL to clone. **Required** - you must set this before deploying.
+The [managed repository](glossary.md#managed-repository) URL to clone. **Required** - you must set this before deploying.
 
 Edit `manifests/dispatcher/configmap.yaml`:
 
@@ -58,13 +58,13 @@ data:
   REPO_URL: "https://github.com/your-org/your-project.git"
 ```
 
-The dispatcher clones this repository when bootstrapping each workspace. Agents do not have clone access - they work with the pre-cloned workspace.
+The [dispatcher](glossary.md#dispatcher) clones this repository when [bootstrapping](glossary.md#bootstrap) each [workspace](glossary.md#workspace). [Agents](glossary.md#agent) do not have clone access - they work with the pre-cloned workspace.
 
 ---
 
 ## Git Identity
 
-The identity used for commits made by agents. **Required** - you must set this before deploying.
+The identity used for commits made by [agents](glossary.md#agent). **Required** - you must set this before deploying.
 
 Edit `manifests/dispatcher/configmap.yaml`:
 
@@ -78,7 +78,7 @@ data:
 
 ## Egress Policy
 
-Controls what network traffic agents can make. Edit `manifests/proxy/configmap.yaml`.
+Controls what network traffic [agents](glossary.md#agent) can make. Edit `manifests/proxy/configmap.yaml`.
 
 ### Proxy Bypass
 
@@ -198,7 +198,7 @@ COMMIT_FOOTER: ""
 
 ## Custom Init Script
 
-You can run a custom initialization script when each sandbox pod starts. This runs after the repository is cloned but before the agent begins working.
+You can run a custom initialization script when each [sandbox](glossary.md#sandbox) starts. This runs after the repository is cloned but before the [agent](glossary.md#agent) begins working.
 
 Edit `manifests/sandbox/configmap.yaml` to add an `init-workspace` key:
 
@@ -216,9 +216,9 @@ data:
 
 The script:
 - Runs with the same user as the agent (non-root)
-- Has access to the cloned workspace at `/home/dev/workspace`
+- Has access to the cloned [workspace](glossary.md#workspace) at `/home/dev/workspace`
 - Can install packages, configure tools, etc.
-- Fails the pod startup if it exits non-zero
+- Fails the sandbox startup if it exits non-zero
 
 Use this for project-specific setup that goes beyond what's in the base yolo-cage image.
 
@@ -226,7 +226,7 @@ Use this for project-specific setup that goes beyond what's in the base yolo-cag
 
 ## First-Turn Prompt
 
-When you attach to a sandbox for the first time, Claude receives an initial prompt that orients it to the environment. Customize this for your project's workflow by editing [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml).
+When you [attach](glossary.md#attach) to a [sandbox](glossary.md#sandbox) for the first time, Claude receives an initial prompt that orients it to the environment. Customize this for your project's workflow by editing [`manifests/sandbox/agent-prompt.yaml`](../manifests/sandbox/agent-prompt.yaml).
 
 The prompt is only sent on the first attach to a new session. Subsequent attaches resume the existing conversation.
 

@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""yolo-cage-vm - VM-side CLI for sandbox operations
+
+This script runs inside the VM and provides sandbox management operations.
+It replaces the bash yolo-cage-inner script with a Python implementation.
+"""
+
+import sys
+from pathlib import Path
+
+# Add parent directory to Python path to import yolo_cage module
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from yolo_cage.vm.commands import main
+
+if __name__ == "__main__":
+    main()
