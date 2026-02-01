@@ -6,6 +6,11 @@
 #
 # The dispatcher authenticates by source IP, classifies commands,
 # and executes the real gh command for allowed operations.
+#
+# File content transmission:
+# - When --body-file <path> is used, the shim reads the file and transmits
+#   its content to the dispatcher (since the dispatcher can't access sandbox files)
+# - When --body-file - is used, the shim reads stdin and transmits it
 
 set -e
 
@@ -14,39 +19,61 @@ DISPATCHER_URL="${YOLO_CAGE_DISPATCHER:-http://git-dispatcher:8080}"
 # Get current working directory
 CWD="$(pwd)"
 
-# Build JSON payload
-# Use jq if available, otherwise simple bash escaping
-if command -v jq &>/dev/null; then
-    # Build args array properly with jq
-    PAYLOAD=$(jq -n \
-        --argjson args "$(printf '%s\n' "$@" | jq -R . | jq -s .)" \
-        --arg cwd "$CWD" \
-        '{args: $args, cwd: $cwd}')
-else
-    # Fallback: simple JSON construction (assumes no special chars in args)
-    ARGS_JSON="["
-    first=true
-    for arg in "$@"; do
-        if [ "$first" = true ]; then
-            first=false
-        else
-            ARGS_JSON+=","
+# Collect file contents and stdin if needed
+declare -A FILE_CONTENTS
+STDIN_CONTENT=""
+NEED_STDIN=false
+
+# Scan args for --body-file
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[i]}" == "--body-file" ]] && ((i+1 < ${#args[@]})); then
+        filepath="${args[i+1]}"
+        if [[ "$filepath" == "-" ]]; then
+            NEED_STDIN=true
+        elif [[ -f "$filepath" ]]; then
+            FILE_CONTENTS["$filepath"]=$(cat "$filepath")
         fi
-        # Escape quotes and backslashes
-        escaped=$(echo "$arg" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        ARGS_JSON+="\"$escaped\""
-    done
-    ARGS_JSON+="]"
-    PAYLOAD="{\"args\":$ARGS_JSON,\"cwd\":\"$CWD\"}"
+    fi
+done
+
+# Read stdin if needed (must do this before any other stdin use)
+if $NEED_STDIN; then
+    STDIN_CONTENT=$(cat)
+fi
+
+# Build JSON payload using jq (required for proper escaping)
+if ! command -v jq &>/dev/null; then
+    echo "yolo-cage: jq is required but not installed" >&2
+    exit 1
+fi
+
+# Build args array
+ARGS_JSON=$(printf '%s\n' "$@" | jq -R . | jq -s .)
+
+# Build files object
+FILES_JSON="{}"
+for path in "${!FILE_CONTENTS[@]}"; do
+    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$path" --arg c "${FILE_CONTENTS[$path]}" '. + {($p): $c}')
+done
+
+# Build complete payload
+if [[ -n "$STDIN_CONTENT" ]]; then
+    PAYLOAD=$(jq -n \
+        --argjson args "$ARGS_JSON" \
+        --arg cwd "$CWD" \
+        --argjson files "$FILES_JSON" \
+        --arg stdin "$STDIN_CONTENT" \
+        '{args: $args, cwd: $cwd, files: $files, stdin: $stdin}')
+else
+    PAYLOAD=$(jq -n \
+        --argjson args "$ARGS_JSON" \
+        --arg cwd "$CWD" \
+        --argjson files "$FILES_JSON" \
+        '{args: $args, cwd: $cwd, files: $files}')
 fi
 
 # Make request to dispatcher
-# Use curl with:
-#   -s: silent (no progress)
-#   -S: show errors
-#   -D: dump headers to temp file
-#   --connect-timeout: don't hang forever
-
 HEADER_FILE=$(mktemp)
 trap "rm -f $HEADER_FILE" EXIT
 

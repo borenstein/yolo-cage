@@ -23,9 +23,15 @@ class PolicyViolation(BaseModel):
 
 
 class GhRequest(BaseModel):
-    """Request from gh shim in sandbox pod."""
+    """Request from gh shim in sandbox pod.
+
+    The shim reads file content for --body-file arguments since the dispatcher
+    cannot access files inside the sandbox.
+    """
     args: list[str]
     cwd: str
+    files: dict[str, str] = {}  # path -> content for --body-file <path>
+    stdin: Optional[str] = None  # content for --body-file -
 
 
 class GhResult(BaseModel):

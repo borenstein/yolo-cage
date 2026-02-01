@@ -36,7 +36,7 @@ class TestGhEndpointUnregistered:
 
         response = client.post(
             "/gh",
-            json={"args": ["status"], "cwd": "/workspace"},
+            json={"args": ["status"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 403
         assert "not registered" in response.text
@@ -45,7 +45,7 @@ class TestGhEndpointUnregistered:
 class TestGhEndpointAllowed:
     """Tests for allowed gh commands."""
 
-    @patch("dispatcher.app.gh_execute")
+    @patch("dispatcher.handlers.gh.gh_execute")
     def test_allowed_command_executes(self, mock_execute, client, registered_pod):
         """Allowed commands should be executed."""
         mock_execute.return_value = GhResult(
@@ -55,14 +55,16 @@ class TestGhEndpointAllowed:
         )
         response = client.post(
             "/gh",
-            json={"args": ["issue", "list"], "cwd": "/workspace"},
+            json={"args": ["issue", "list"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "issue list output" in response.text
         assert response.headers.get("X-Yolo-Cage-Exit-Code") == "0"
-        mock_execute.assert_called_once_with(["issue", "list"], "/workspace")
+        mock_execute.assert_called_once_with(
+            ["issue", "list"], "/workspaces/feature-branch", files={}, stdin_content=None
+        )
 
-    @patch("dispatcher.app.gh_execute")
+    @patch("dispatcher.handlers.gh.gh_execute")
     def test_pr_create_allowed(self, mock_execute, client, registered_pod):
         """PR create should be allowed."""
         mock_execute.return_value = GhResult(
@@ -72,13 +74,13 @@ class TestGhEndpointAllowed:
         )
         response = client.post(
             "/gh",
-            json={"args": ["pr", "create", "--title", "Test PR"], "cwd": "/workspace"},
+            json={"args": ["pr", "create", "--title", "Test PR"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "pull/123" in response.text
         assert response.headers.get("X-Yolo-Cage-Exit-Code") == "0"
 
-    @patch("dispatcher.app.gh_execute")
+    @patch("dispatcher.handlers.gh.gh_execute")
     def test_pr_view_allowed(self, mock_execute, client, registered_pod):
         """PR view should be allowed."""
         mock_execute.return_value = GhResult(
@@ -88,7 +90,7 @@ class TestGhEndpointAllowed:
         )
         response = client.post(
             "/gh",
-            json={"args": ["pr", "view", "123"], "cwd": "/workspace"},
+            json={"args": ["pr", "view", "123"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert response.headers.get("X-Yolo-Cage-Exit-Code") == "0"
@@ -101,7 +103,7 @@ class TestGhEndpointBlocked:
         """PR merge should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["pr", "merge", "123"], "cwd": "/workspace"},
+            json={"args": ["pr", "merge", "123"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "merging PRs is not permitted" in response.text
@@ -111,7 +113,7 @@ class TestGhEndpointBlocked:
         """Repo delete should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["repo", "delete", "owner/repo"], "cwd": "/workspace"},
+            json={"args": ["repo", "delete", "owner/repo"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "deleting repositories is not permitted" in response.text
@@ -121,7 +123,7 @@ class TestGhEndpointBlocked:
         """Direct API access should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["api", "/repos/owner/repo"], "cwd": "/workspace"},
+            json={"args": ["api", "/repos/owner/repo"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "direct API access is not permitted" in response.text
@@ -131,7 +133,7 @@ class TestGhEndpointBlocked:
         """Auth operations should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["auth", "login"], "cwd": "/workspace"},
+            json={"args": ["auth", "login"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "authentication is managed by the sandbox" in response.text
@@ -141,7 +143,7 @@ class TestGhEndpointBlocked:
         """Secret operations should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["secret", "set", "MY_SECRET"], "cwd": "/workspace"},
+            json={"args": ["secret", "set", "MY_SECRET"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "managing secrets is not permitted" in response.text
@@ -155,7 +157,7 @@ class TestGhEndpointUnknown:
         """Unknown commands should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": ["unknown-command"], "cwd": "/workspace"},
+            json={"args": ["unknown-command"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "unrecognized or disallowed gh operation" in response.text
@@ -165,7 +167,7 @@ class TestGhEndpointUnknown:
         """Empty args should be blocked."""
         response = client.post(
             "/gh",
-            json={"args": [], "cwd": "/workspace"},
+            json={"args": [], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "unrecognized or disallowed gh operation" in response.text
@@ -175,7 +177,7 @@ class TestGhEndpointUnknown:
 class TestGhEndpointExecutionErrors:
     """Tests for execution error handling."""
 
-    @patch("dispatcher.app.gh_execute")
+    @patch("dispatcher.handlers.gh.gh_execute")
     def test_command_returns_nonzero_exit(self, mock_execute, client, registered_pod):
         """Non-zero exit codes should be passed through."""
         mock_execute.return_value = GhResult(
@@ -185,8 +187,87 @@ class TestGhEndpointExecutionErrors:
         )
         response = client.post(
             "/gh",
-            json={"args": ["repo", "view", "nonexistent/repo"], "cwd": "/workspace"},
+            json={"args": ["repo", "view", "nonexistent/repo"], "cwd": "/home/dev/workspace"},
         )
         assert response.status_code == 200
         assert "Not Found" in response.text
         assert response.headers.get("X-Yolo-Cage-Exit-Code") == "1"
+
+
+class TestGhEndpointFileContent:
+    """Tests for file content transmission from sandbox to dispatcher."""
+
+    @patch("dispatcher.handlers.gh.gh_execute")
+    def test_body_file_content_passed(self, mock_execute, client, registered_pod):
+        """File content for --body-file should be passed to execute."""
+        mock_execute.return_value = GhResult(
+            exit_code=0,
+            stdout="https://github.com/owner/repo/issues/1",
+            stderr="",
+        )
+        response = client.post(
+            "/gh",
+            json={
+                "args": ["issue", "create", "--title", "Test", "--body-file", "/tmp/body.md"],
+                "cwd": "/home/dev/workspace",
+                "files": {"/tmp/body.md": "Issue body content"},
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Yolo-Cage-Exit-Code") == "0"
+        mock_execute.assert_called_once_with(
+            ["issue", "create", "--title", "Test", "--body-file", "/tmp/body.md"],
+            "/workspaces/feature-branch",
+            files={"/tmp/body.md": "Issue body content"},
+            stdin_content=None,
+        )
+
+    @patch("dispatcher.handlers.gh.gh_execute")
+    def test_stdin_content_passed(self, mock_execute, client, registered_pod):
+        """Stdin content for --body-file - should be passed to execute."""
+        mock_execute.return_value = GhResult(
+            exit_code=0,
+            stdout="https://github.com/owner/repo/pull/1",
+            stderr="",
+        )
+        response = client.post(
+            "/gh",
+            json={
+                "args": ["pr", "create", "--title", "Test PR", "--body-file", "-"],
+                "cwd": "/home/dev/workspace",
+                "stdin": "PR body from stdin",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("X-Yolo-Cage-Exit-Code") == "0"
+        mock_execute.assert_called_once_with(
+            ["pr", "create", "--title", "Test PR", "--body-file", "-"],
+            "/workspaces/feature-branch",
+            files={},
+            stdin_content="PR body from stdin",
+        )
+
+    @patch("dispatcher.handlers.gh.gh_execute")
+    def test_both_files_and_stdin(self, mock_execute, client, registered_pod):
+        """Both files and stdin can be passed together."""
+        mock_execute.return_value = GhResult(
+            exit_code=0,
+            stdout="success",
+            stderr="",
+        )
+        response = client.post(
+            "/gh",
+            json={
+                "args": ["issue", "create", "--body-file", "/tmp/body.md"],
+                "cwd": "/home/dev/workspace",
+                "files": {"/tmp/body.md": "file content"},
+                "stdin": "stdin content",
+            },
+        )
+        assert response.status_code == 200
+        mock_execute.assert_called_once_with(
+            ["issue", "create", "--body-file", "/tmp/body.md"],
+            "/workspaces/feature-branch",
+            files={"/tmp/body.md": "file content"},
+            stdin_content="stdin content",
+        )

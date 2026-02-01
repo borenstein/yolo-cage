@@ -128,7 +128,12 @@ async def handle_gh(gh_req: GhRequest, request: Request):
 
     logger.info(f"gh from {client_ip} ({assigned_branch}): {gh_req.args}")
 
-    return gh_handler.handle(gh_req.args, cwd)
+    return gh_handler.handle(
+        gh_req.args,
+        cwd,
+        files=gh_req.files,
+        stdin_content=gh_req.stdin,
+    )
 
 
 # Pod lifecycle management endpoints
