@@ -138,18 +138,27 @@ rm -rf "${CA_TEMP}"
 echo "Proxy CA generated."
 
 # ============================================================================
-# Phase 6: Install CLI
+# Phase 6: Install CLI and Python package
 # ============================================================================
 echo ""
-echo "Phase 6: Install CLI"
+echo "Phase 6: Install CLI and Python package"
 
-sudo cp "${REPO_ROOT}/scripts/yolo-cage-inner" /usr/local/bin/yolo-cage-inner
-sudo chmod +x /usr/local/bin/yolo-cage-inner
+# Copy Python package to system location
+sudo mkdir -p /usr/local/lib/yolo-cage
+sudo cp -r "${REPO_ROOT}/yolo_cage" /usr/local/lib/yolo-cage/
 
+# Install VM CLI (Python entry point)
+sudo cp "${REPO_ROOT}/scripts/yolo-cage-vm" /usr/local/bin/yolo-cage-vm
+sudo chmod +x /usr/local/bin/yolo-cage-vm
+
+# Update Python path for yolo-cage-vm
+sudo sed -i 's|sys.path.insert(0, str(Path(__file__).parent.parent))|sys.path.insert(0, "/usr/local/lib/yolo-cage")|' /usr/local/bin/yolo-cage-vm
+
+# Install configure script
 sudo cp "${REPO_ROOT}/scripts/yolo-cage-configure" /usr/local/bin/yolo-cage-configure
 sudo chmod +x /usr/local/bin/yolo-cage-configure
 
-echo "CLI installed."
+echo "CLI and Python package installed."
 
 # ============================================================================
 # Done

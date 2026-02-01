@@ -1,6 +1,6 @@
 # yolo-cage Escape Testing Guide
 
-This document describes the security controls in yolo-cage and how to verify they work correctly. Use this guide to audit the sandbox before deploying in your organization.
+This document describes the security controls in yolo-cage and how to verify they work correctly. Use this guide to audit the [sandbox](glossary.md#sandbox) before deploying in your organization. For terminology, see the [glossary](glossary.md).
 
 > **For a complete security audit**, including agentic testing, see [security-audit.md](./security-audit.md).
 

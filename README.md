@@ -28,11 +28,11 @@ chmod +x yolo-cage && sudo mv yolo-cage /usr/local/bin/
 yolo-cage build --interactive --up
 ```
 
-Then create a sandbox and start coding:
+Then create a [sandbox](docs/glossary.md#sandbox) and start coding:
 
 ```bash
 yolo-cage create feature-branch
-yolo-cage attach feature-branch   # Claude in tmux, YOLO mode
+yolo-cage attach feature-branch   # Attach to agent in tmux
 ```
 
 **Prerequisites:** Vagrant with libvirt (Linux) or QEMU (macOS, experimental), 8GB RAM, 4 CPUs, GitHub PAT (`repo` scope), Claude account. See [setup docs](docs/setup.md) for details.
@@ -41,11 +41,11 @@ yolo-cage attach feature-branch   # Claude in tmux, YOLO mode
 
 ## What gets blocked
 
-**Secrets in HTTP/HTTPS** - egress proxy scans request bodies, headers, URLs:
+**Secrets in HTTP/HTTPS** - [egress proxy](docs/glossary.md#egress-proxy) scans request bodies, headers, URLs:
 - `sk-ant-*`, `AKIA*`, `ghp_*`, SSH private keys, generic credential patterns
 
-**Git operations** - dispatcher enforces branch isolation:
-- Push to any branch except the one assigned at sandbox creation
+**Git operations** - [dispatcher](docs/glossary.md#dispatcher) enforces [branch isolation](docs/glossary.md#branch-isolation):
+- Push to any branch except the [assigned branch](docs/glossary.md#assigned-branch)
 - `git remote`, `git clone`, `git config`, `git credential`
 
 **GitHub CLI** - dispatcher blocks dangerous commands:
@@ -64,26 +64,26 @@ See [Architecture](docs/architecture.md) for the full threat model.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ Vagrant VM (MicroK8s)                                                    │
+│ Runtime (Vagrant VM + MicroK8s)                                          │
 │                                                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │ Sandbox Pod                                                        │  │
+│  │ Sandbox                                                            │  │
 │  │                                                                    │  │
-│  │  Claude Code (YOLO mode)                                           │  │
+│  │  Agent (Claude Code in YOLO mode)                                  │  │
 │  │       │                                                            │  │
 │  │       ├── git/gh ──▶ Dispatcher ──▶ GitHub                         │  │
-│  │       │              • Branch enforcement                          │  │
-│  │       │              • TruffleHog pre-push                         │  │
+│  │       │              • Branch isolation enforcement                │  │
+│  │       │              • TruffleHog pre-push scanning                │  │
 │  │       │                                                            │  │
 │  │       └── HTTP/S ──▶ Egress Proxy ──▶ Internet                     │  │
-│  │                      • Secret scanning                             │  │
+│  │                      • Secret scanning (LLM-Guard)                 │  │
 │  │                      • Domain blocklist                            │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-One sandbox per branch. Agents can only push to their assigned branch. All outbound traffic is filtered.
+One [sandbox](docs/glossary.md#sandbox) per branch. [Agents](docs/glossary.md#agent) can only push to their [assigned branch](docs/glossary.md#assigned-branch). All outbound traffic is filtered.
 
 ---
 
@@ -103,11 +103,11 @@ One sandbox per branch. Agents can only push to their assigned branch. All outbo
 
 ### Port forwarding
 
-Access web apps running inside a sandbox:
+Access web apps running inside a [sandbox](docs/glossary.md#sandbox):
 
 ```bash
-yolo-cage port-forward feature-x 8080           # localhost:8080 → pod:8080
-yolo-cage port-forward feature-x 9000:3000      # localhost:9000 → pod:3000
+yolo-cage port-forward feature-x 8080           # localhost:8080 → sandbox:8080
+yolo-cage port-forward feature-x 9000:3000      # localhost:9000 → sandbox:3000
 yolo-cage port-forward feature-x 8080 --bind 0.0.0.0  # LAN accessible
 ```
 
@@ -117,6 +117,7 @@ See [Configuration](docs/configuration.md) for proxy bypass, hooks, and resource
 
 ## Documentation
 
+- **[Glossary](docs/glossary.md)** - Ubiquitous language and terminology
 - **[Architecture](docs/architecture.md)** - Threat model, design rationale
 - **[Configuration](docs/configuration.md)** - Egress policy, proxy bypass, hooks
 - **[Customization](docs/customization.md)** - Adding tools, resource limits

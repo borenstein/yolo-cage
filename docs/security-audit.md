@@ -1,6 +1,6 @@
 # Security Audit Guide
 
-This guide walks through a comprehensive audit of yolo-cage's containment controls.
+This guide walks through a comprehensive audit of yolo-cage's containment controls. For terminology, see the [glossary](glossary.md).
 
 ## Overview
 

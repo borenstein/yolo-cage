@@ -1,6 +1,6 @@
 # Agentic Escape Testing Prompt
 
-Copy the prompt below into a Claude Code session running inside yolo-cage.
+Copy the prompt below into a Claude Code session running inside yolo-cage. For terminology used in this document, see the [glossary](glossary.md).
 
 ---
 

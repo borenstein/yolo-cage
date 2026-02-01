@@ -2,10 +2,12 @@
 
 > **Note**: This setup provides defense-in-depth, not absolute security. Use scoped credentials and do not use production secrets. See [LICENSE](../LICENSE) for warranty disclaimers.
 
+For terminology, see the [glossary](glossary.md).
+
 ## Prerequisites
 
 - **Vagrant**: With libvirt provider (Linux) or QEMU (macOS)
-- **8GB RAM, 4 CPUs**: Available for the VM
+- **8GB RAM, 4 CPUs**: Available for the [runtime](glossary.md#runtime)
 - **GitHub PAT**: With `repo` scope ([create one here](https://github.com/settings/tokens))
 - **Claude account**: Pro, Team, or Enterprise
 
@@ -99,11 +101,11 @@ yolo-cage build --config-file my-config.env --up
 
 ## What Happens During Build
 
-1. Config is saved to `~/.yolo-cage/config.env`
+1. [Configuration](glossary.md#configuration) is saved to `~/.yolo-cage/config.env`
 2. Vagrant creates an Ubuntu VM with MicroK8s
 3. Docker images are built inside the VM
 4. Kubernetes manifests are applied
-5. Config is synced to VM and applied to the cluster
+5. Configuration is synced to VM and applied to the cluster
 
 The build takes 5-10 minutes on first run.
 
@@ -113,18 +115,18 @@ The build takes 5-10 minutes on first run.
 # Create a sandbox for a feature branch
 yolo-cage create feature-auth
 
-# Attach to the sandbox (launches Claude in tmux)
+# Attach to the sandbox (connects to the agent)
 yolo-cage attach feature-auth
 ```
 
-The session runs inside tmux:
+The [agent](glossary.md#agent) session runs inside tmux:
 - **Detach**: Press `Ctrl+B, D` to detach without ending the session
 - **Reattach**: Run `yolo-cage attach feature-auth` to resume
 
 ## Daily Workflow
 
 ```bash
-# Start the VM (if stopped)
+# Start the runtime (if stopped)
 yolo-cage up
 
 # List existing sandboxes
@@ -140,18 +142,18 @@ yolo-cage down
 
 ## Claude Authentication
 
-On first attach to any sandbox, you'll complete the standard OAuth device flow:
+On first [attach](glossary.md#attach) to any [sandbox](glossary.md#sandbox), you'll complete the standard OAuth device flow:
 1. Claude displays a URL and code
 2. Open the URL in your browser
 3. Enter the code to authorize
 
-After that, all sandbox pods share the same credentials.
+After that, all sandboxes share the same credentials.
 
-**Alternative**: Set `CLAUDE_OAUTH` in your config to skip the device flow.
+**Alternative**: Set `CLAUDE_OAUTH` in your [configuration](glossary.md#configuration) to skip the device flow.
 
 ## Troubleshooting
 
-### VM won't start
+### Runtime won't start
 
 Check Vagrant status:
 ```bash
@@ -160,9 +162,9 @@ vagrant status
 vagrant up --debug
 ```
 
-### Pod not starting
+### Sandbox not starting
 
-Check pod events:
+Check events:
 ```bash
 yolo-cage status
 vagrant ssh -c "kubectl describe pod -n yolo-cage <pod-name>"
@@ -170,7 +172,7 @@ vagrant ssh -c "kubectl describe pod -n yolo-cage <pod-name>"
 
 ### Git operations failing
 
-Check dispatcher logs:
+Check [dispatcher](glossary.md#dispatcher) logs:
 ```bash
 vagrant ssh -c "kubectl logs -n yolo-cage deployment/git-dispatcher"
 ```
@@ -237,6 +239,7 @@ yolo-cage upgrade --rebuild
 
 ## Next Steps
 
+- Read the [Glossary](glossary.md) to understand yolo-cage terminology
 - Read [Architecture](architecture.md) to understand the security model
 - See [Configuration](configuration.md) for all configuration options
 - See [Security Audit](security-audit.md) to test the containment
