@@ -95,7 +95,7 @@ def attach_to_sandbox(branch: Branch) -> int:
         SandboxError: If attach fails
     """
     pod_name = branch.to_pod_name()
-    print(f"Attaching to {pod_name}... (Ctrl+B,D to detach)")
+    print(f"Attaching to {pod_name}... (Ctrl+B,D to detach)", flush=True)
 
     if not kubernetes.pod_exists(pod_name):
         raise SandboxError(f"Sandbox not found for branch: {branch.name}")
@@ -126,7 +126,7 @@ def open_shell_in_sandbox(branch: Branch) -> int:
         SandboxError: If shell fails
     """
     pod_name = branch.to_pod_name()
-    print(f"Opening shell in {pod_name}... (Ctrl+B,D to detach)")
+    print(f"Opening shell in {pod_name}... (Ctrl+B,D to detach)", flush=True)
 
     if not kubernetes.pod_exists(pod_name):
         raise SandboxError(f"Sandbox not found for branch: {branch.name}")

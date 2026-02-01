@@ -81,5 +81,5 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     if status == "running":
         print()
-        print("Sandboxes:")
+        print("Sandboxes:", flush=True)
         vagrant.ssh(repo_dir, "yolo-cage-vm list")
